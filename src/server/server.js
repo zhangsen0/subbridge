@@ -31,6 +31,7 @@ const { registerGrabApi } = require('./grabApi');
 const { registerDashboardApi } = require('./dashboardApi');
 const { registerLoginApi } = require('./loginApi');
 const { registerPresetsApi } = require('./presetsApi');
+const { registerScenarioApi } = require('./scenarioApi');
 const { FetchLog } = require('./fetchLog');
 const { handleSubscribe } = require('./subscribe');
 const { resolveRole, buildSubscriptionUrl } = require('./auth');
@@ -113,7 +114,7 @@ function createServer(config) {
 
   // 多级用户鉴权钩子（/ping、/login 与静态资源除外）
   app.addHook('onRequest', async (req, reply) => {
-    if (req.url === '/ping' || req.url === '/' || req.url === '/login' || req.url === '/api/login' || req.url.startsWith('/static/')) return;
+    if (req.url === '/ping' || req.url === '/' || req.url === '/login' || req.url === '/setup' || req.url === '/api/login' || req.url.startsWith('/static/')) return;
     const role = resolveRole(req, config);
     if (!role) {
       return reply.code(401).send({ error: '未授权：请在请求中携带正确令牌' });
@@ -142,6 +143,11 @@ function createServer(config) {
   // 登录页（公开，无需令牌）
   app.get('/login', async (req, reply) => {
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'login.html')));
+  });
+
+  // 一键配置向导页（公开加载页面，数据接口受令牌保护）
+  app.get('/setup', async (req, reply) => {
+    reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'setup.html')));
   });
 
   // 静态资源（从磁盘读取，便于前台实时修改）
@@ -173,6 +179,9 @@ function createServer(config) {
 
   // 内置模板（规则 / 质量门槛 / 清理规则，一键初始化）
   registerPresetsApi(app, ctx);
+
+  // 一键配置向导（场景模板 + 快速开始）
+  registerScenarioApi(app, ctx);
 
   // 节点池管理（仅管理员）与实时测速（管理员/普通用户）
   registerPoolApi(app, ctx);

@@ -22,6 +22,8 @@ function req(method, path, body, token) {
     try { const r = await fn(); out.push([name, r.status, (r.body || '').slice(0, 60)]); }
     catch (e) { out.push([name, 'ERR', e.message]); }
   };
+  // 测试前置：放行本地测试源（SSRF 白名单）
+  await req('POST', '/api/config', { fetcher: { private_host_allowlist: ['127.0.0.1'] } }, T);
   // 认证
   await t('POST /api/login 账号密码', () => req('POST', '/api/login', { username: 'admin', password: 'adminpass' }));
   await t('POST /api/login 错误密码', () => req('POST', '/api/login', { username: 'admin', password: 'wrong' }));
@@ -31,7 +33,7 @@ function req(method, path, body, token) {
   // 节点池
   await t('GET /api/pool?limit=3', () => req('GET', '/api/pool?limit=3', null, T));
   await t('POST /api/pool/probe 空测速', () => req('POST', '/api/pool/probe', { limit: 3, timeout: 5 }, T));
-  await t('GET /api/pool/nodes 导出', () => req('GET', '/api/pool/nodes', null, T));
+  await t('GET /api/pool?limit=5 节点导出', () => req('GET', '/api/pool?limit=5', null, T));
   // 抓取（本地源）
   await t('GET /api/grab 本地源', () => req('GET', '/api/grab?url=http%3A%2F%2F127.0.0.1%3A18099%2Fsub.txt', null, T));
   // 规则
@@ -54,11 +56,14 @@ function req(method, path, body, token) {
   await t('PUT /api/templates 保存', () => req('PUT', '/api/templates/clash', { content: '# test\n{{proxies}}' }, T));
   // 预设模板
   await t('GET /api/presets', () => req('GET', '/api/presets', null, T));
+  // 一键配置场景
+  await t('GET /api/scenarios 场景列表', () => req('GET', '/api/scenarios', null, T));
+  await t('POST /api/setup/apply 一键应用', () => req('POST', '/api/setup/apply', { scenario_id: 'daily', main_urls: '' }, T));
   // 备份
   await t('GET /api/backup', () => req('GET', '/api/backup', null, T));
   // 本地节点
-  await t('GET /api/localnode/status', () => req('GET', '/api/localnode/status', null, T));
-  await t('GET /api/tunnel/status', () => req('GET', '/api/tunnel/status', null, T));
+  await t('GET /api/localnode', () => req('GET', '/api/localnode', null, T));
+  await t('POST /api/localnode/restart', () => req('POST', '/api/localnode/restart', {}, T));
   // 订阅输出
   await t('GET /sub?target=clash', () => req('GET', '/sub?target=clash', null, null));
   await t('GET /sub?target=singbox', () => req('GET', '/sub?target=singbox', null, null));

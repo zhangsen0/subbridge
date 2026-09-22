@@ -28,5 +28,8 @@
     "fastify": "^4.28.1",
     "js-yaml": "^4.1.0",
     "undici": "^6.21.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.10.0"
   }
 }

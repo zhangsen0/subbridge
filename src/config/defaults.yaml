@@ -242,8 +242,8 @@ logging:
   level: "info"
 
 storage:
-  # 存储驱动：file（默认，文件系统，零依赖）
-  # 后续新增驱动（postgres / mysql 等）只需在 src/store 注册并实现统一接口，
+  # 存储驱动：file（默认，文件系统，零依赖）| sqlite（可选，需 npm install better-sqlite3）
+  # 数据落库到 data/subbridge.sqlite；新增驱动只需在 src/store 注册并实现统一接口，
   # 页面即可切换；驱动变更需重启服务后生效
   driver: "file"
 

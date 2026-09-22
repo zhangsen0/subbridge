@@ -39,6 +39,20 @@ function getByPath(obj, dottedPath) {
   }
   return cur;
 }
+/** 按点号路径写入配置值（如 'fetcher.timeout_seconds' → {fetcher:{timeout_seconds:...}}），自动创建中间对象 */
+function setByPath(obj, dottedPath, value) {
+  const parts = dottedPath.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (cur[part] === null || cur[part] === undefined || typeof cur[part] !== 'object') {
+      cur[part] = {};
+    }
+    cur = cur[part];
+  }
+  cur[parts[parts.length - 1]] = value;
+  return obj;
+}
 function setToken(v) {
   const el = $('api-token-input');
   if (el && v) el.value = v;
@@ -504,7 +518,8 @@ function initPool() {
     btn.disabled = true;
     try {
       const d = await apiJson('/api/pool/probe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      let msg = `测速完成：共 ${d.tested} 个，可用 ${d.alive} 个`;
+      const s = d.summary || d;
+      let msg = `测速完成：共 ${s.total ?? s.tested ?? 0} 个，可用 ${s.alive ?? 0} 个`;
       if (d.quality) msg += `；质量门槛停用 ${d.quality.disabled} / 启用 ${d.quality.enabled}`;
       if (d.cleanup) msg += `；自动清理删除 ${d.cleanup.removed}`;
       toast(msg);
@@ -959,6 +974,7 @@ const CONFIG_FIELDS = [
   { group: '安全', key: 'security.user_username', label: '普通用户登录账号', type: 'text', hint: '' },
   { group: '安全', key: 'security.user_password', label: '普通用户登录密码', type: 'text', hint: '' },
   { group: '存储与日志', key: 'storage.driver', label: '存储驱动', type: 'select', options: ['file'], hint: '当前支持文件存储；可扩展数据库驱动。' },
+  { group: '存储与日志', key: 'storage.driver', label: '存储驱动', type: 'select', options: ['file', 'sqlite'], hint: 'file=文件存储（默认零依赖）；sqlite=SQLite 数据库（需安装 better-sqlite3）。切换后重启服务生效。' },
   { group: '存储与日志', key: 'fetch_log.capacity', label: '事件日志容量（条）', type: 'number', hint: '超限自动丢弃最旧记录。' },
   { group: '存储与日志', key: 'logging.level', label: '日志级别', type: 'select', options: ['trace', 'debug', 'info', 'warn', 'error'], hint: '' },
 ];
@@ -1124,8 +1140,8 @@ function initTemplates() {
     try {
       await apiJson('/api/templates/' + encodeURIComponent(name), {
         method: 'PUT',
-        headers: { 'Content-Type': 'text/plain' },
-        body: $('template-editor').value,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: $('template-editor').value }),
       });
       toast('模板已保存');
     } catch (err) {
@@ -1181,8 +1197,23 @@ function initBackup() {
 /* ============================================================
    初始化
    ============================================================ */
+// 新手引导卡：点击「知道了」关闭；一键配置完成后自动隐藏
+function initGuide() {
+  const card = $('wizard-guide');
+  if (!card) return;
+  try {
+    if (localStorage.getItem('subbridge-guide-done') === '1') card.classList.add('hidden');
+  } catch (e) { /* 隐私模式忽略 */ }
+  const btn = $('btn-guide-close');
+  if (btn) btn.addEventListener('click', () => {
+    card.classList.add('hidden');
+    try { localStorage.setItem('subbridge-guide-done', '1'); } catch (e) { /* 忽略 */ }
+  });
+}
+
 async function init() {
   initTheme();
+  initGuide();
   initMode();
   initLogin();
   initGrab();
@@ -1198,11 +1229,12 @@ async function init() {
   initBackup();
   await identifyRole();
   loadPresets();
+  loadTemplateList();
 }
 document.addEventListener('DOMContentLoaded', () => {
   // 逐个初始化并隔离异常：单个模块出错不阻断其余功能（含登录态识别）
   const steps = [
-    ['主题', initTheme], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab],
+    ['主题', initTheme], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab],
     ['调试', initDebug], ['节点库', initPool], ['规则', initRules], ['质量', initQuality],
     ['清理', initCleanup], ['日志', initLogs], ['本地节点', initLocalNode], ['配置', initConfig],
     ['模板', initTemplates], ['备份', initBackup],
@@ -1212,4 +1244,5 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   identifyRole().catch((err) => console.error('识别角色失败:', err));
   try { loadPresets(); } catch (err) { console.error('加载模板失败:', err); }
+  try { loadTemplateList(); } catch (err) { console.error('加载模板列表失败:', err); }
 });

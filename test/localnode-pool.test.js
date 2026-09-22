@@ -69,8 +69,10 @@ test('本机节点关闭注入时 localNodes() 返回空数组（不入池）', 
 });
 
 test('默认配置 auto_join_pool 为 true', async () => {
-  const config = await loadConfig();
-  assert.equal(config.localnode.auto_join_pool, true);
+  // 直接断言 defaults.yaml（不受运行时 data/config.yaml 覆盖层影响）
+  const yaml = require('js-yaml');
+  const defaults = yaml.load(fs.readFileSync(path.join(__dirname, '../src/config/defaults.yaml'), 'utf8'));
+  assert.equal(defaults.localnode.auto_join_pool, true);
 });
 
 test('auto_join_pool=false 时仍可手动注入但不在启动时入池', async () => {

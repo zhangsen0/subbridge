@@ -11,10 +11,12 @@
  */
 
 const { FileStore } = require('./fileStore');
+const { SqliteStore } = require('./sqliteStore');
 
-// 驱动注册表：驱动名 -> 构造函数
+// 驱动注册表：驱动名 -> 构造函数（file 零依赖默认；sqlite 可选）
 const DRIVERS = {
   file: FileStore,
+  sqlite: SqliteStore,
 };
 
 /**

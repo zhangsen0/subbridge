@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>快速开始 · SubBridge</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    /* 一键配置向导专用样式（延续主站双主题设计语言） */
+    .wizard { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
+    .wizard-head { text-align: center; margin-bottom: 22px; }
+    .wizard-head h1 { margin: 0 0 6px; font-size: 24px; }
+    .wizard-head p { margin: 0; color: var(--text-faint); }
+    .steps { display: flex; justify-content: center; gap: 6px; margin: 18px 0 26px; }
+    .step-dot { display: flex; align-items: center; gap: 6px; color: var(--text-faint); font-size: 13px; }
+    .step-dot .n { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border);
+      display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .step-dot.on { color: var(--accent); }
+    .step-dot.on .n { border-color: var(--accent); background: var(--accent); color: #fff; }
+    .step-dot.done .n { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .step-line { width: 26px; height: 2px; background: var(--border); }
+    .wz-body { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
+    .wz-body h2 { margin: 0 0 4px; font-size: 18px; }
+    .wz-body .sub { color: var(--text-faint); margin: 0 0 16px; font-size: 13px; }
+    .scen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+    .scen-card { border: 2px solid var(--border); border-radius: 10px; padding: 12px; cursor: pointer;
+      background: var(--bg); transition: border-color .15s, transform .15s; }
+    .scen-card:hover { transform: translateY(-1px); border-color: var(--accent); }
+    .scen-card.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg)); }
+    .scen-card .sc-em { font-size: 22px; }
+    .scen-card .sc-name { font-weight: 600; margin: 4px 0 2px; }
+    .scen-card .sc-aud { font-size: 12px; color: var(--accent); }
+    .scen-card .sc-desc { font-size: 12px; color: var(--text-faint); margin-top: 4px; line-height: 1.5; }
+    .wz-field { margin-bottom: 14px; }
+    .wz-field label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+    .wz-field textarea, .wz-field input[type="text"] { width: 100%; box-sizing: border-box;
+      padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+      color: var(--text); font-size: 14px; }
+    .wz-field .hint { font-size: 12px; color: var(--text-faint); margin: 5px 0 0; }
+    .wz-actions { display: flex; justify-content: space-between; margin-top: 20px; }
+    .wz-actions .btn { min-width: 110px; }
+    .wz-summary { background: var(--bg); border: 1px dashed var(--border); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.8; }
+    .wz-summary b { color: var(--accent); }
+    .done-box { text-align: center; padding: 30px 10px; }
+    .done-box .big { font-size: 46px; }
+    .done-box h2 { margin: 12px 0 6px; }
+    .done-box .sub { color: var(--text-faint); }
+    .done-link { display: block; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; margin: 14px auto; max-width: 520px; word-break: break-all; font-size: 13px;
+      color: var(--accent); user-select: all; }
+    .topbar { display: flex; align-items: center; gap: 10px; max-width: 860px; margin: 0 auto;
+      padding: 18px 16px 0; }
+    .topbar .brand b { font-size: 18px; }
+    .topbar .grow { flex: 1; }
+    .err-box { background: color-mix(in srgb, var(--danger) 10%, var(--bg)); border: 1px solid var(--danger);
+      border-radius: 8px; padding: 10px 14px; color: var(--danger); font-size: 13px; margin-bottom: 14px; }
+    .sw-toggle { display: flex; gap: 14px; align-items: center; }
+    .sw { position: relative; width: 44px; height: 24px; background: var(--border); border-radius: 12px;
+      cursor: pointer; transition: background .15s; flex: none; }
+    .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+      border-radius: 50%; background: #fff; transition: left .15s; }
+    .sw.on { background: var(--accent); }
+    .sw.on::after { left: 22px; }
+    .sw-label { font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">🌐 <b>SubBridge</b> 快速开始</div>
+    <div class="grow"></div>
+    <button type="button" id="btn-theme" class="btn ghost small">🌓</button>
+    <a href="/" class="btn ghost small">返回驾驶舱</a>
+  </div>
+
+  <div class="wizard">
+    <div class="wizard-head">
+      <h1>三步配好你的订阅节点</h1>
+      <p>不用懂任何协议，按步骤点下一步即可。所有参数之后都能在「全站参数」里修改。</p>
+    </div>
+
+    <div class="steps" id="steps"></div>
+
+    <div class="wz-body" id="wz-body"></div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var THEME_KEY = 'subbridge-theme';
+      var TOKEN_KEY = 'subbridge-token';
+      var STEPS = ['选场景', '填订阅', '开关', '确认应用'];
+      var step = 0;
+      var data = { scenario_id: '', main_urls: '', extra_sources: '', localnode_enabled: true,
+                   quality_enabled: true, cleanup_enabled: true };
+      var scenarios = [];
+
+      function $(id) { return document.getElementById(id); }
+      function getToken() {
+        try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; }
+      }
+      function api(url, opts) {
+        var headers = Object.assign({}, (opts && opts.headers) || {});
+        var t = getToken();
+        if (t) headers['X-API-Token'] = t;
+        if (opts && opts.body) headers['Content-Type'] = 'application/json';
+        return fetch(url, Object.assign({}, opts, { headers })).then(function (r) {
+          return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+        });
+      }
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+      }
+
+      /* 主题 */
+      function applyTheme() {
+        var t = 'light';
+        try { t = localStorage.getItem(THEME_KEY) || 'light'; } catch (e) {}
+        document.documentElement.dataset.theme = t;
+      }
+      $('btn-theme').addEventListener('click', function () {
+        var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+        applyTheme();
+      });
+      applyTheme();
+
+      /* 步骤条 */
+      function renderSteps() {
+        $('steps').innerHTML = STEPS.map(function (s, i) {
+          var cls = i === step ? 'on' : i < step ? 'done' : '';
+          return '<div class="step-dot ' + cls + '"><span class="n">' + (i < step ? '✓' : (i + 1)) + '</span>' + s + '</div>'
+            + (i < STEPS.length - 1 ? '<div class="step-line"></div>' : '');
+        }).join('');
+      }
+
+      /* 第 1 步：选场景 */
+      function renderStep1() {
+        var html = '<h2>你主要用它做什么？</h2><p class="sub">选择最接近的使用场景，系统会自动配好节点筛选、质量门槛与清理规则。</p>';
+        if (!scenarios.length) {
+          html += '<div class="err-box">场景加载失败，请确认已登录管理员并刷新重试。</div>';
+        } else {
+          html += '<div class="scen-grid">' + scenarios.map(function (s) {
+            return '<div class="scen-card' + (data.scenario_id === s.id ? ' sel' : '') + '" data-id="' + esc(s.id) + '">' +
+              '<div class="sc-em">' + esc(s.emoji) + '</div>' +
+              '<div class="sc-name">' + esc(s.label) + '</div>' +
+              '<div class="sc-aud">' + esc(s.audience) + '</div>' +
+              '<div class="sc-desc">' + esc(s.desc) + '</div></div>';
+          }).join('') + '</div>';
+        }
+        $('wz-body').innerHTML = html;
+        document.querySelectorAll('.scen-card').forEach(function (el) {
+          el.addEventListener('click', function () {
+            data.scenario_id = el.dataset.id;
+            document.querySelectorAll('.scen-card').forEach(function (c) { c.classList.remove('sel'); });
+            el.classList.add('sel');
+          });
+        });
+      }
+
+      /* 第 2 步：填订阅 */
+      function renderStep2() {
+        $('wz-body').innerHTML =
+          '<h2>粘贴你的订阅链接</h2><p class="sub">从哪里获取？你购买的机场 / 服务商会给你一个 https:// 开头的订阅地址。可以多个，一行一个。</p>' +
+          '<div class="wz-field"><label>主订阅链接（可留空）</label>' +
+          '<textarea id="f-main" rows="3" placeholder="https://你的机场订阅地址/sub?token=xxx&#10;一行一个，可多个">' + esc(data.main_urls) + '</textarea>' +
+          '<p class="hint">留空也能继续：系统会先自动抓取公开节点，或只用本机节点。</p></div>' +
+          '<div class="wz-field"><label>备用订阅链接（可选）</label>' +
+          '<textarea id="f-extra" rows="2" placeholder="https://备用机场订阅地址">' + esc(data.extra_sources) + '</textarea>' +
+          '<p class="hint">主订阅失效时自动切换，增加可用性。</p></div>';
+      }
+
+      /* 第 3 步：开关 */
+      function renderStep3() {
+        $('wz-body').innerHTML =
+          '<h2>开启这些增强功能？</h2><p class="sub">都推荐开启，之后随时可关。</p>' +
+          '<div class="wz-field sw-toggle"><div class="sw' + (data.localnode_enabled ? ' on' : '') + '" id="sw-ln"></div>' +
+          '<div><div class="sw-label">本机节点</div><p class="hint" style="margin:2px 0 0">把本机变成一个订阅节点，别人/其他设备可用你的订阅链接连接。</p></div></div>' +
+          '<div class="wz-field sw-toggle"><div class="sw' + (data.quality_enabled ? ' on' : '') + '" id="sw-q"></div>' +
+          '<div><div class="sw-label">自动质量筛选</div><p class="hint" style="margin:2px 0 0">自动停用慢速/不达标的节点，订阅里只留好用的。</p></div></div>' +
+          '<div class="wz-field sw-toggle"><div class="sw' + (data.cleanup_enabled ? ' on' : '') + '" id="sw-c"></div>' +
+          '<div><div class="sw-label">自动清理失效节点</div><p class="hint" style="margin:2px 0 0">定期删除检测不可用的节点，节点池保持干净。</p></div></div>';
+        [['sw-ln', 'localnode_enabled'], ['sw-q', 'quality_enabled'], ['sw-c', 'cleanup_enabled']].forEach(function (pair) {
+          $(pair[0]).addEventListener('click', function () {
+            data[pair[1]] = !data[pair[1]];
+            $(pair[0]).classList.toggle('on', data[pair[1]]);
+          });
+        });
+      }
+
+      /* 第 4 步：确认 */
+      function renderStep4() {
+        var sc = scenarios.find(function (s) { return s.id === data.scenario_id; }) || { label: '未选择' };
+        var urls = data.main_urls.split(/[\n,，]/).map(function (s) { return s.trim(); }).filter(Boolean);
+        $('wz-body').innerHTML =
+          '<h2>确认一下配置</h2><p class="sub">点击「完成配置」后立即生效，可在「全站参数」随时调整。</p>' +
+          '<div class="wz-summary">' +
+          '<div>📦 场景：<b>' + esc(sc.label) + '</b></div>' +
+          '<div>🔗 主订阅：<b>' + (urls.length ? urls.length + ' 个' : '未填（自动抓取公开节点 + 本机）') + '</b></div>' +
+          '<div>🖥️ 本机节点：<b>' + (data.localnode_enabled ? '开启' : '关闭') + '</b></div>' +
+          '<div>⭐ 自动质量筛选：<b>' + (data.quality_enabled ? '开启' : '关闭') + '</b></div>' +
+          '<div>🧹 自动清理失效：<b>' + (data.cleanup_enabled ? '开启' : '关闭') + '</b></div>' +
+          '<div>📄 规则/质量/清理模板：<b>' + (sc.rules ? sc.rules.length : 0) + ' 条规则 · ' +
+          (sc.quality_gates ? sc.quality_gates.length : 0) + ' 条门槛 · ' +
+          (sc.cleanup_rules ? sc.cleanup_rules.length : 0) + ' 条清理</b></div>' +
+          '</div>';
+      }
+
+      /* 完成 */
+      function renderDone(res) {
+        var sc = (res && res.scenario) || {};
+        var link = '/sub?token=' + encodeURIComponent(getToken());
+        $('wz-body').innerHTML =
+          '<div class="done-box"><div class="big">🎉</div>' +
+          '<h2>配置完成！</h2>' +
+          '<p class="sub">场景「' + esc(sc.label || '') + '」已应用。把下面链接填进 Clash / 其他客户端即可使用。</p>' +
+          '<div class="done-link">' + esc(link) + '</div>' +
+          '<p class="sub">提示：点击链接可预览订阅；首次使用建议在「节点库」点一次「测速」，自动挑选最快节点。</p>' +
+          '<div style="margin-top:14px"><a class="btn primary" href="/">返回驾驶舱</a></div></div>';
+      }
+
+      /* 动作按钮 */
+      function renderActions(showBack, showNext, nextLabel, onNext) {
+        var html = '<div class="wz-actions">';
+        if (showBack) html += '<button type="button" class="btn ghost" id="wz-back">上一步</button>';
+        else html += '<span></span>';
+        html += '<button type="button" class="btn primary" id="wz-next">' + (showNext ? nextLabel : '完成配置') + '</button></div>';
+        // 追加到 wz-body 尾部
+        var div = document.createElement('div');
+        div.innerHTML = html;
+        $('wz-body').appendChild(div.firstChild);
+        if (showBack) $('wz-back').addEventListener('click', function () { step--; render(); });
+        $('wz-next').addEventListener('click', function () {
+          if (onNext) onNext();
+          else { step++; render(); }
+        });
+      }
+
+      function render() {
+        renderSteps();
+        if (step === 0) {
+          renderStep1();
+          renderActions(false, true, '下一步', function () {
+            if (!data.scenario_id) { alert('请先选择一个使用场景'); return; }
+            step++; render();
+          });
+        } else if (step === 1) {
+          renderStep2();
+          renderActions(true, true, '下一步', function () {
+            data.main_urls = $('f-main').value;
+            data.extra_sources = $('f-extra').value;
+            step++; render();
+          });
+        } else if (step === 2) {
+          renderStep3();
+          renderActions(true, true, '下一步', function () { step++; render(); });
+        } else if (step === 3) {
+          renderStep4();
+          renderActions(true, false, '完成配置', function () {
+            var btn = $('wz-next');
+            btn.disabled = true;
+            btn.textContent = '配置中...';
+            api('/api/setup/apply', {
+              method: 'POST',
+              body: JSON.stringify({
+                scenario_id: data.scenario_id,
+                main_urls: data.main_urls,
+                extra_sources: data.extra_sources,
+                localnode_enabled: data.localnode_enabled,
+                quality_enabled: data.quality_enabled,
+                cleanup_enabled: data.cleanup_enabled,
+              }),
+            }).then(function (res) {
+              if (!res.ok) { alert('配置失败：' + (res.d && res.d.error || '未知错误')); btn.disabled = false; btn.textContent = '完成配置'; return; }
+              step = 4; render(); renderDone(res.d);
+            }).catch(function (e) { alert('网络错误：' + e.message); btn.disabled = false; btn.textContent = '完成配置'; });
+          });
+        }
+      }
+
+      /* 初始化：拉场景 + 校验登录 */
+      api('/api/scenarios').then(function (res) {
+        if (!res.ok) {
+          $('wz-body').innerHTML = '<div class="err-box">未授权或加载失败：' + (res.d && res.d.error || 'HTTP ' + res.status) +
+            '。<br><a href="/login">去登录</a> 后回来刷新页面。</div>';
+          return;
+        }
+        scenarios = res.d.scenarios || [];
+        // 默认选中第一个场景
+        if (scenarios.length && !data.scenario_id) data.scenario_id = scenarios[0].id;
+        render();
+      }).catch(function (e) {
+        $('wz-body').innerHTML = '<div class="err-box">加载失败：' + e.message + '。<a href="/login">去登录</a></div>';
+      });
+    })();
+  </script>
+</body>
+</html>

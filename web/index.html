@@ -34,6 +34,7 @@
       <button type="button" data-mode="expert">专家</button>
     </div>
     <span class="badge" id="role-badge">未登录</span>
+    <a href="/setup" class="btn small" id="btn-wizard" title="三步配好订阅节点" style="margin-right:6px">🚀 快速开始</a>
     <button id="btn-login" type="button">登录</button>
   </header>
 
@@ -51,6 +52,18 @@
     <main class="wrap">
       <!-- ============ 驾驶舱（主页） ============ -->
       <section id="panel-grab" class="panel active">
+        <!-- 新手引导卡（完成一键配置后隐藏） -->
+        <div class="card" id="wizard-guide">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font-size:28px">🚀</span>
+            <div style="flex:1;min-width:200px">
+              <b>还没配好？三步搞定</b>
+              <p style="margin:2px 0 0;color:var(--text-faint);font-size:13px">选场景 → 填订阅 → 一键应用，不懂也能用。</p>
+            </div>
+            <a href="/setup" class="btn primary">开始配置</a>
+            <button type="button" class="btn ghost" id="btn-guide-close">知道了</button>
+          </div>
+        </div>
         <!-- KPI 概览 -->
         <div class="kpi-grid" id="kpi-grid">
           <div class="kpi">
@@ -364,7 +377,7 @@
         </div>
 
         <!-- 配置原文（专家） -->
-        <div class="card hidden" data-mode="expert" id="config-raw-card">
+        <div class="card" data-mode="expert" id="config-raw-card">
           <div class="result-head">
             <h3>配置原文 YAML <span class="tag">专家</span></h3>
             <div class="toolbar">
