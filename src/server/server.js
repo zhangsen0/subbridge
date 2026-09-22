@@ -30,6 +30,7 @@ const { registerProbeApi } = require('./probeApi');
 const { registerGrabApi } = require('./grabApi');
 const { registerDashboardApi } = require('./dashboardApi');
 const { registerLoginApi } = require('./loginApi');
+const { registerPresetsApi } = require('./presetsApi');
 const { FetchLog } = require('./fetchLog');
 const { handleSubscribe } = require('./subscribe');
 const { resolveRole, buildSubscriptionUrl } = require('./auth');
@@ -141,6 +142,9 @@ function createServer(config) {
 
   // 账号密码 / 令牌登录（公开）
   registerLoginApi(app, ctx);
+
+  // 内置模板（规则 / 质量门槛 / 清理规则，一键初始化）
+  registerPresetsApi(app, ctx);
 
   // 节点池管理（仅管理员）与实时测速（管理员/普通用户）
   registerPoolApi(app, ctx);

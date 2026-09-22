@@ -192,6 +192,12 @@
         </div>
         <textarea id="rules-input" rows="5" spellcheck="false"
           placeholder="JSON 或 YAML 规则数组，逐条生效；规则默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:300},{&quot;type&quot;:&quot;sort&quot;,&quot;key&quot;:&quot;latency&quot;,&quot;order&quot;:&quot;asc&quot;},{&quot;type&quot;:&quot;limit&quot;,&quot;count&quot;:20}]"></textarea>
+        <div class="preset-row">
+          <label>内置模板</label>
+          <select id="rules-preset"><option value="">选择模板…</option></select>
+          <button type="button" class="btn ghost small" id="btn-rules-preset">填入模板</button>
+          <span class="preset-desc" id="rules-preset-desc"></span>
+        </div>
         <p class="hint">
           可用规则：include / exclude（名称正则）、type（节点类型）、country（国家，如 JP/HK/US）、
           source（来源域名包含）、latency（延迟上限 ms）、speed（速度下限 B/s）、sort（排序）、limit（数量上限）。
@@ -218,6 +224,12 @@
         </div>
         <textarea id="quality-input" rows="5" spellcheck="false"
           placeholder="JSON 或 YAML 门槛数组，逐条生效；默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;alive&quot;},{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:500},{&quot;type&quot;:&quot;speed&quot;,&quot;min_bps&quot;:1000000},{&quot;type&quot;:&quot;score&quot;,&quot;min_score&quot;:60},{&quot;type&quot;:&quot;name&quot;,&quot;exclude&quot;:&quot;测试|过期&quot;}]"></textarea>
+        <div class="preset-row">
+          <label>内置模板</label>
+          <select id="quality-preset"><option value="">选择模板…</option></select>
+          <button type="button" class="btn ghost small" id="btn-quality-preset">填入模板</button>
+          <span class="preset-desc" id="quality-preset-desc"></span>
+        </div>
         <p class="hint">
           质量指标：alive（可用性）、latency（延迟 ms）、speed（速度 B/s）、score（质量分 0-100：
           可用性 40 + 延迟 30 + 速度 30）、name（名称排除）。不合格节点自动停用、合格节点自动启用，结果持久化。
@@ -239,6 +251,12 @@
         </div>
         <textarea id="cleanup-input" rows="5" spellcheck="false"
           placeholder="JSON 或 YAML 删除规则数组，满足任一规则即删除；默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;unreachable&quot;},{&quot;type&quot;:&quot;stale&quot;,&quot;days&quot;:7},{&quot;type&quot;:&quot;no_probe&quot;,&quot;days&quot;:3},{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:800},{&quot;type&quot;:&quot;score&quot;,&quot;max_score&quot;:30}]"></textarea>
+        <div class="preset-row">
+          <label>内置模板</label>
+          <select id="cleanup-preset"><option value="">选择模板…</option></select>
+          <button type="button" class="btn ghost small" id="btn-cleanup-preset">填入模板</button>
+          <span class="preset-desc" id="cleanup-preset-desc"></span>
+        </div>
         <p class="hint">
           删除规则：unreachable（不可达）、stale（超 N 天未更新）、no_probe（入库超 N 天未测速）、
           latency（延迟超上限）、speed（速度低下限）、score（质量分低）、name（名称正则）、source（来源包含）。

@@ -636,6 +636,51 @@ function initQuality() {
   });
 }
 
+/* ---------- 内置模板：一键初始化规则 / 质量门槛 / 清理规则 ---------- */
+const PRESET_GROUPS = [
+  { select: 'rules-preset', btn: 'btn-rules-preset', input: 'rules-input', desc: 'rules-preset-desc' },
+  { select: 'quality-preset', btn: 'btn-quality-preset', input: 'quality-input', desc: 'quality-preset-desc' },
+  { select: 'cleanup-preset', btn: 'btn-cleanup-preset', input: 'cleanup-input', desc: 'cleanup-preset-desc' },
+];
+
+/** 拉取内置模板并填充下拉框 */
+async function loadPresets() {
+  try {
+    const d = await apiJson('/api/presets');
+    const map = { rules: d.rules, quality_gates: d.quality_gates, cleanup_rules: d.cleanup_rules };
+    PRESET_GROUPS.forEach((g) => {
+      const sel = $(g.select);
+      if (!sel) return;
+      sel.innerHTML = '<option value="">选择模板…</option>';
+      const kind = g.input === 'rules-input' ? 'rules' : g.input === 'quality-input' ? 'quality_gates' : 'cleanup_rules';
+      (map[kind] || []).forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = JSON.stringify(p.value);
+        opt.textContent = p.label;
+        opt.dataset.desc = p.desc || '';
+        sel.appendChild(opt);
+      });
+      const btn = $(g.btn);
+      btn.onclick = () => {
+        const v = sel.value;
+        if (!v) { toast('请先选择模板', true); return; }
+        const opt = sel.selectedOptions[0];
+        $(g.input).value = JSON.stringify(JSON.parse(v), null, 2);
+        const descEl = $(g.desc);
+        if (descEl) descEl.textContent = (opt && opt.dataset.desc) || '';
+        toast('模板已填入，可修改后保存');
+      };
+      sel.onchange = () => {
+        const opt = sel.selectedOptions[0];
+        const descEl = $(g.desc);
+        if (descEl) descEl.textContent = sel.value && opt ? (opt.dataset.desc || '') : '';
+      };
+    });
+  } catch (err) {
+    /* 模板加载失败不阻塞页面 */
+  }
+}
+
 function initRules() {
   $('btn-rules-gen').addEventListener('click', () => {
     const rules = $('rules-input').value.trim();
@@ -1119,5 +1164,6 @@ async function init() {
   initTemplates();
   initBackup();
   await identifyRole();
+  loadPresets();
 }
 document.addEventListener('DOMContentLoaded', init);

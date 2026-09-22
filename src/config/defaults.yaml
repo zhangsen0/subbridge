@@ -240,3 +240,144 @@ storage:
   # 后续新增驱动（postgres / mysql 等）只需在 src/store 注册并实现统一接口，
   # 页面即可切换；驱动变更需重启服务后生效
   driver: "file"
+
+# ============ 内置模板（规则 / 质量门槛 / 清理规则 一键初始化） ============
+# value 为可直接使用的规则数组；label / desc 用于前端展示。
+# 前台可修改、可新增（保存后立即生效，无需重启）。
+presets:
+  # 订阅选取规则模板（/sub 与规则卡片「生成订阅链接」使用）
+  rules:
+    fast-stable:
+      label: "快速稳定（延迟≤300ms 取前 20）"
+      desc: "最常用：排除高延迟节点，按延迟升序取前 20 条。"
+      value:
+        - { type: "latency", max_ms: 300 }
+        - { type: "sort", key: "latency", order: "asc" }
+        - { type: "limit", count: 20 }
+    all-latency:
+      label: "全部按延迟排序"
+      desc: "不限制数量，仅按延迟从低到高排列（未测节点排后）。"
+      value:
+        - { type: "sort", key: "latency", order: "asc" }
+    by-speed:
+      label: "高速优先（≥1MB/s 取前 30）"
+      desc: "只看下载速度，按速度从高到低取前 30 条。"
+      value:
+        - { type: "speed", min_bps: 1000000 }
+        - { type: "sort", key: "speed", order: "desc" }
+        - { type: "limit", count: 30 }
+    exclude-slow:
+      label: "排除慢速（延迟≤800ms 且 ≥100KB/s）"
+      desc: "宽松筛选：只排除明显不可用的节点。"
+      value:
+        - { type: "latency", max_ms: 800 }
+        - { type: "speed", min_bps: 100000 }
+    fast-us:
+      label: "快速美国（US 前 10）"
+      desc: "仅保留美国节点，延迟≤300ms，按延迟升序取前 10。"
+      value:
+        - { type: "country", value: ["US"] }
+        - { type: "latency", max_ms: 300 }
+        - { type: "sort", key: "latency", order: "asc" }
+        - { type: "limit", count: 10 }
+    fast-as:
+      label: "快速亚洲（港/日/台/新 前 15）"
+      desc: "仅保留香港/日本/台湾/新加坡节点，按延迟升序取前 15。"
+      value:
+        - { type: "country", value: ["HK", "JP", "TW", "SG"] }
+        - { type: "sort", key: "latency", order: "asc" }
+        - { type: "limit", count: 15 }
+    type-vless:
+      label: "仅 VLESS 快速（前 50）"
+      desc: "只保留 VLESS 协议节点，延迟≤500ms 取前 50。"
+      value:
+        - { type: "type", value: ["vless"] }
+        - { type: "latency", max_ms: 500 }
+        - { type: "limit", count: 50 }
+    no-test:
+      label: "排除测试/过期（前 50）"
+      desc: "按名称排除带测试/过期/免费字样的节点，按延迟升序取前 50。"
+      value:
+        - { type: "exclude", pattern: "测试|过期|免费" }
+        - { type: "sort", key: "latency", order: "asc" }
+        - { type: "limit", count: 50 }
+    hk-tw:
+      label: "港台专用（前 10）"
+      desc: "仅保留香港/台湾节点，按延迟升序取前 10。"
+      value:
+        - { type: "country", value: ["HK", "TW"] }
+        - { type: "sort", key: "latency", order: "asc" }
+        - { type: "limit", count: 10 }
+
+  # 质量门槛模板（按多指标自动开关节点）
+  quality_gates:
+    basic:
+      label: "基础连通（alive + 延迟≤1000ms）"
+      desc: "只要求节点可达、延迟在 1 秒内，适合节点较少的场景。"
+      value:
+        - { type: "alive" }
+        - { type: "latency", max_ms: 1000 }
+    standard:
+      label: "标准门槛（延迟≤500ms 且 ≥1MB/s）"
+      desc: "日常推荐：可用、延迟与速度均达标，质量分≥60。"
+      value:
+        - { type: "alive" }
+        - { type: "latency", max_ms: 500 }
+        - { type: "speed", min_bps: 1000000 }
+        - { type: "score", min_score: 60 }
+    strict:
+      label: "严格门槛（延迟≤300ms 且 ≥5MB/s）"
+      desc: "高质量要求：延迟低、速度快，质量分≥70。"
+      value:
+        - { type: "alive" }
+        - { type: "latency", max_ms: 300 }
+        - { type: "speed", min_bps: 5000000 }
+        - { type: "score", min_score: 70 }
+    relaxed:
+      label: "宽松门槛（alive + 质量分≥40）"
+      desc: "只要求节点可用，分数不低，尽量保留更多节点。"
+      value:
+        - { type: "alive" }
+        - { type: "score", min_score: 40 }
+    no-slow-name:
+      label: "排除劣名（测试/过期/免费）"
+      desc: "可用性达标 + 名称排除明显劣质节点，其余放行。"
+      value:
+        - { type: "alive" }
+        - { type: "name", exclude: "测试|过期|免费" }
+
+  # 自动清理模板（满足任一规则即删除）
+  cleanup_rules:
+    basic:
+      label: "清理不可用节点"
+      desc: "检测为不可达（probe.alive=false）的节点自动删除。"
+      value:
+        - { type: "unreachable" }
+    no-probe:
+      label: "清理不可用 + 7 天未测"
+      desc: "不可达节点，以及入库超 7 天仍未测速的节点一并清理。"
+      value:
+        - { type: "unreachable" }
+        - { type: "no_probe", days: 7 }
+    stale:
+      label: "清理 30 天未更新 + 不可用"
+      desc: "超 30 天未更新的节点，或检测不可达的节点自动删除。"
+      value:
+        - { type: "stale", days: 30 }
+        - { type: "unreachable" }
+    slow:
+      label: "清理慢速（>1000ms 或 <100KB/s）"
+      desc: "延迟超过 1 秒，或速度低于 100KB/s 的节点自动删除。"
+      value:
+        - { type: "latency", max_ms: 1000 }
+        - { type: "speed", min_bps: 100000 }
+    expired-name:
+      label: "清理名称含 测试/过期"
+      desc: "按名称正则删除明显劣质/过期节点。"
+      value:
+        - { type: "name", match: "测试|过期|免费" }
+    dead-score:
+      label: "清理低质量分（≤30）"
+      desc: "质量分低于 30 的节点自动删除（依赖测速数据）。"
+      value:
+        - { type: "score", max_score: 30 }
