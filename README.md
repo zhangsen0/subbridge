@@ -143,8 +143,11 @@ test/             单元测试（node:test）
 ### 测试与提交
 
 ```bash
-npm run check    # 语法检查 + 全部单元测试（提交前必须全绿）
+npm run check                     # 语法检查 + 全部单元测试（提交前必须全绿）
 npm test
+node scripts/smoke-api-test.js    # 接口冒烟（需本地服务 18081 运行，含 admin-token 环境）
+node scripts/smoke-ui-test.js     # 页面结构检查（需本地服务 18081 运行）
+python3 scripts/browser-ui-test.py  # 浏览器级 UI 测试（需 Playwright + 本地服务 18081 运行）
 ```
 
 commit 一律使用中文；提交前必须 `npm run check` 全绿。
