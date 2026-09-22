@@ -12,7 +12,7 @@
  */
 
 const net = require('node:net');
-const { speedTestViaTunnel } = require('./tunnel');
+const { speedTestViaTunnel, probeViaProxy } = require('./tunnel');
 
 /**
  * TCP 连通性检测
@@ -45,7 +45,9 @@ function tcpProbe(host, port, timeoutMs) {
 /**
  * 检测单个节点
  * @param {object} node 统一节点模型
- * @param {{timeoutMs?: number, speedTest?: boolean, speedTestUrl?: string, speedTestBytes?: number}} opts
+ * @param {{timeoutMs?: number, speedTest?: boolean, speedTestUrl?: string, speedTestBytes?: number, proxyUrl?: string}} opts
+ *   proxyUrl：上游代理地址（http/socks5）。配置后 TCP 探测改经代理 CONNECT 完成，
+ *   适用于本机无法直连目标网络的环境（探测代理与抓取代理相互独立、均可配置）。
  * @returns {Promise<object>} 检测后的节点（node.probe 已写入）
  */
 async function checkNode(node, opts) {
@@ -59,7 +61,10 @@ async function checkNode(node, opts) {
 
   if (!node.server || !node.port) return node;
 
-  probe.latencyMs = await tcpProbe(node.server, node.port, opts.timeoutMs || 3000);
+  // 配置了上游探测代理时经代理 CONNECT 探测，否则直连 TCP 探测
+  probe.latencyMs = opts.proxyUrl
+    ? await probeViaProxy(opts.proxyUrl, node.server, node.port, opts.timeoutMs || 3000)
+    : await tcpProbe(node.server, node.port, opts.timeoutMs || 3000);
   if (probe.latencyMs === null) return node;
   probe.alive = true;
 

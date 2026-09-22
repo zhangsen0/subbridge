@@ -848,6 +848,7 @@ const CONFIG_FIELDS = [
   { group: '转换', key: 'converter.clash.url_test_url', label: '测速探测地址', type: 'text', hint: 'Clash 客户端自动选组用的 URL。' },
   { group: '转换', key: 'converter.clash.url_test_interval', label: '测速间隔（秒）', type: 'number', hint: '' },
   { group: '检测', key: 'probe.enabled', label: '可用性检测默认开启', type: 'bool', hint: '' },
+  { group: '检测', key: 'probe.upstream_proxy', label: '上游探测代理（http/socks5）', type: 'text', hint: '配置后检测经代理 CONNECT 完成，适合本机无法直连目标网络的环境；留空则直连（回退抓取代理）。' },
   { group: '检测', key: 'probe.concurrency', label: '检测并发数', type: 'number', hint: '并发过高可能被服务商限流。' },
   { group: '检测', key: 'probe.timeout_ms', label: '单节点超时（毫秒）', type: 'number', hint: '' },
   { group: '检测', key: 'probe.drop_unreachable', label: '剔除不可达节点', type: 'bool', hint: '仅在当前输出剔除，节点池仍保留。' },

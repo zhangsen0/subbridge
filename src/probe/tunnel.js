@@ -215,4 +215,50 @@ async function speedTestViaTunnel(proxy, targetUrl, sampleBytes, timeoutMs) {
   });
 }
 
-module.exports = { openProxyTunnel, speedTestViaTunnel };
+/**
+ * 经代理做 TCP 连通性探测（CONNECT 隧道打通即视为可达）
+ * 用于「沙箱 / 受限网络」等直连不可达场景：探测也走上游代理。
+ * @param {string} proxyUrl 代理地址（http://user:pass@host:port 或 socks5://user:pass@host:port）
+ * @param {string} host 目标主机
+ * @param {number} port 目标端口
+ * @param {number} timeoutMs 超时（毫秒）
+ * @returns {Promise<number|null>} 隧道建立延迟（毫秒）；不可达返回 null
+ */
+async function probeViaProxy(proxyUrl, host, port, timeoutMs) {
+  let proxy;
+  try {
+    const u = new URL(proxyUrl);
+    if (u.protocol === 'http:') {
+      proxy = {
+        type: 'http',
+        server: u.hostname,
+        port: Number(u.port || 80),
+        username: u.username || undefined,
+        password: u.password || undefined,
+        tls: false,
+      };
+    } else if (u.protocol === 'socks5:') {
+      proxy = {
+        type: 'socks5',
+        server: u.hostname,
+        port: Number(u.port || 1080),
+        username: u.username || undefined,
+        password: u.password || undefined,
+      };
+    } else {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  try {
+    const start = Date.now();
+    const socket = await openProxyTunnel(proxy, host, port, timeoutMs || 5000);
+    socket.destroy();
+    return Date.now() - start;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { openProxyTunnel, speedTestViaTunnel, probeViaProxy };

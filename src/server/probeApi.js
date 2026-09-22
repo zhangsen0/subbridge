@@ -40,6 +40,8 @@ function registerProbeApi(app, ctx) {
           speedTest: !!probeCfg.speed_test,
           speedTestUrl: probeCfg.speed_test_url,
           speedTestBytes: probeCfg.speed_test_bytes,
+          // 上游探测代理：探测配置优先，回退抓取配置
+          proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
         }),
       ),
     );

@@ -145,6 +145,9 @@ probe:
   concurrency: 10
   # 单节点 TCP 连接超时（毫秒）
   timeout_ms: 3000
+  # 上游探测代理（http/socks5）：配置后 TCP 探测改经代理 CONNECT 完成，
+  # 适用于本机无法直连目标网络的环境；留空则直连探测（回退 fetcher.upstream_proxy）
+  upstream_proxy: ''
   # 是否剔除不可达节点（false 则保留并在 probe 字段标注状态）
   drop_unreachable: true
   # 是否对 http/socks5 节点做真实下载测速（其余协议仅做 TCP 连通性检测）
