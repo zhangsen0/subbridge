@@ -117,6 +117,18 @@ function cleanUndefined(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+/**
+ * HTTP 响应头值安全化：Node 仅允许可打印 ASCII（0x20-0x7E），
+ * 中文与换行会抛 ERR_INVALID_CHAR。这里统一转为 URL 编码，保证无损且合规。
+ * @param {string} value 原始文本
+ * @returns {string} 可安全放入响应头的值
+ */
+function safeHeaderValue(value) {
+  return encodeURIComponent(String(value ?? ''))
+    .replace(/[()<>@,;:\\"/[\]?={}]/g, (ch) => encodeURIComponent(ch))
+    .replace(/%20/g, ' ');
+}
+
 module.exports = {
   decodeBase64,
   encodeBase64UrlSafe,
@@ -124,4 +136,5 @@ module.exports = {
   safeDecodeURIComponent,
   isValidHttpUrl,
   cleanUndefined,
+  safeHeaderValue,
 };

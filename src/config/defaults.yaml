@@ -19,6 +19,10 @@ fetcher:
   timeout_seconds: 15
   # 抓取失败重试次数
   retries: 2
+  # 重试退避初始延时（毫秒），按 2^n 递增
+  retry_base_ms: 300
+  # 重试退避最大延时（毫秒）
+  retry_max_ms: 2000
   # 请求 User-Agent
   user_agent: "SubBridge/1.0"
   # 单次抓取内容大小上限（字节），默认 10MB
@@ -31,6 +35,8 @@ fetcher:
   block_private: true
   # 内网地址白名单（域名），命中则跳过 SSRF 拦截，例如 ["internal.example.com"]
   private_host_allowlist: []
+  # 抓取公开订阅时，是否通过本机代理节点中转（自中继采集；需 localnode 的 HTTP 代理在运行，顺带验证本机节点可用）
+  relay_through_localnode: false
 
 converter:
   # 默认目标格式：clash / singbox / links / v2ray
@@ -65,9 +71,92 @@ converter:
     url_test_interval: 300
 
 security:
-  # 若设置，则 /convert 与 /api/* 需要携带令牌（?token= 或 X-API-Token 请求头）
+  # 管理员令牌：完全访问（/convert、/sub、/api/*）
   api_token: ""
+  # 普通用户令牌：仅可拉取订阅（/convert、/sub），无法修改配置
+  # 注意：设置 user_token 时务必同时设置 api_token，否则无人具备管理权限
+  user_token: ""
+
+localnode:
+  # 是否启用本机作为订阅节点（默认关闭，避免意外开放代理）
+  enabled: false
+  # 节点服务监听地址（需要被外部客户端访问时设为 0.0.0.0）
+  host: "0.0.0.0"
+  # HTTP 代理端口；0 表示不启用
+  http_port: 1080
+  # SOCKS5 代理端口；0 表示不启用
+  socks_port: 1081
+  # 认证（强烈建议设置，避免开放代理被滥用）；留空表示无认证
+  username: ""
+  password: ""
+  # 客户端可访问本机的地址（域名或公网 IP）；留空时依次尝试 CF 隧道域名、自动探测公网 IP
+  public_address: ""
+  # 是否自动探测公网 IP（需要本机可访问外网探测服务）
+  auto_detect_public_ip: true
+  # 公网 IP 探测服务地址
+  public_ip_detect_url: "https://api.ipify.org"
+  # 公网 IP 探测超时（毫秒）
+  ip_probe_timeout_ms: 5000
+  # IP 缓存时间（秒）
+  ip_cache_seconds: 300
+  # 是否将本机节点注入订阅转换结果
+  inject_into_subscription: true
+  # 注入节点的名称
+  http_node_name: "本机-HTTP"
+  socks_node_name: "本机-SOCKS5"
+
+cf_tunnel:
+  # 是否启用 Cloudflare Tunnel（本机无公网 IP 时，用 cloudflared 把节点映射为公网 HTTPS 地址）
+  enabled: false
+  # cloudflared 可执行文件路径（或仅命令名，需在 PATH 中）
+  binary: "cloudflared"
+  # 模式一：远程管理隧道令牌（填了就用 token 模式，hostname 在 CF 后台配置）
+  token: ""
+  # 模式二：命名隧道（填 hostname + tunnel_uuid + credentials_file）
+  hostname: ""
+  tunnel_uuid: ""
+  credentials_file: ""
+  # 隧道入口指向的本地服务；留空自动按 localnode.http_port 生成 http://127.0.0.1:<port>
+  ingress_service: ""
+  # 注入订阅时优先使用的公网主机（一般不填；填了则覆盖隧道自动获取的地址）
+  public_hostname_override: ""
+
+probe:
+  # 是否默认启用可用性检测（/convert 与 /sub 可通过 probe=1/0 覆盖）
+  enabled: false
+  # 并发检测的节点数上限
+  concurrency: 10
+  # 单节点 TCP 连接超时（毫秒）
+  timeout_ms: 3000
+  # 是否剔除不可达节点（false 则保留并在 probe 字段标注状态）
+  drop_unreachable: true
+  # 是否对 http/socks5 节点做真实下载测速（其余协议仅做 TCP 连通性检测）
+  speed_test: false
+  # 测速下载地址
+  speed_test_url: "https://speed.cloudflare.com/__down?bytes=200000"
+  # 测速采样字节数（收到该字节量即结束）
+  speed_test_bytes: 200000
+  # 是否把延迟追加到节点名称（如 "节点名 [120ms]"）
+  append_latency: false
+
+subscription:
+  # 本机订阅源（/sub 端点）默认合并的主订阅地址列表
+  main_urls: []
+  # /sub 默认目标格式
+  default_target: "clash"
+  # /sub 默认是否启用可用性检测（可通过 probe=1/0 覆盖）
+  probe_by_default: true
+  # /sub 响应缓存秒数（0 表示不缓存）
+  cache_seconds: 60
+  # /sub 默认订阅名称
+  name: "SubBridge"
 
 logging:
   # trace / debug / info / warn / error
   level: "info"
+
+storage:
+  # 存储驱动：file（默认，文件系统，零依赖）
+  # 后续新增驱动（postgres / mysql 等）只需在 src/store 注册并实现统一接口，
+  # 页面即可切换；驱动变更需重启服务后生效
+  driver: "file"

@@ -12,10 +12,15 @@
       <h1>SubBridge</h1>
       <span class="slogan">通用订阅转换服务</span>
     </div>
-    <nav class="tabs">
-      <button class="tab active" data-tab="convert" type="button">订阅转换</button>
-      <button class="tab" data-tab="config" type="button">服务配置</button>
-    </nav>
+    <div class="topbar-right">
+      <input id="api-token-input" class="token-input" type="password"
+        placeholder="令牌（可选）" title="填写管理员或普通用户令牌，用于鉴权">
+      <nav class="tabs">
+        <button class="tab active" data-tab="convert" type="button">订阅转换</button>
+        <button class="tab admin-only hidden" data-tab="localnode" type="button">本地节点</button>
+        <button class="tab admin-only hidden" data-tab="config" type="button">服务配置</button>
+      </nav>
+    </div>
   </header>
 
   <main>
@@ -41,6 +46,22 @@
             <label for="name">订阅名称</label>
             <input id="name" placeholder="MySub">
           </div>
+          <div class="field">
+            <label for="probe">可用性检测</label>
+            <select id="probe">
+              <option value="">跟随配置</option>
+              <option value="1">启用（剔除不可达）</option>
+              <option value="0">关闭</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 高级选项（按需展开，降低普通使用门槛） -->
+        <label class="toggle-line" for="advanced-toggle">
+          <input type="checkbox" id="advanced-toggle">
+          高级选项（过滤 / 排序 / 重命名 / UDP）
+        </label>
+        <div id="advanced-fields" class="grid hidden">
           <div class="field">
             <label for="include">包含（正则）</label>
             <input id="include" placeholder="香港|HK">
@@ -73,11 +94,21 @@
             </select>
           </div>
         </div>
+
         <div class="actions">
           <button type="submit" class="btn primary" id="btn-convert">转 换</button>
           <button type="button" class="btn ghost" id="btn-copy-link">复制订阅链接</button>
         </div>
       </form>
+
+      <div class="card sub-source">
+        <h3>本机订阅源</h3>
+        <div class="tpl-bar">
+          <input id="sub-source-url" readonly placeholder="加载中...">
+          <button type="button" class="btn ghost small" id="btn-copy-sub">复制</button>
+        </div>
+        <p class="hint">外部客户端仅凭此链接（含 token）即可拉取「主订阅合并 + 可用性检测 + 本机节点」后的订阅；将链接填入 Clash / sing-box 等客户端即可。</p>
+      </div>
 
       <div id="result-box" class="hidden">
         <div class="result-head">
@@ -92,20 +123,44 @@
       </div>
     </section>
 
-    <!-- ============ 服务配置面板 ============ -->
+    <!-- ============ 本地节点面板（仅管理员） ============ -->
+    <section id="panel-localnode" class="panel">
+      <div class="ln-status card">
+        <h3>节点运行状态</h3>
+        <div id="ln-status-body" class="ln-status-grid">加载中...</div>
+      </div>
+      <div class="config-grid">
+        <div class="card">
+          <h3>本地节点配置</h3>
+          <div class="ln-fields" id="ln-fields"></div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-ln-save">保存并生效</button>
+            <button type="button" class="btn ghost" id="btn-ln-reload">重新加载</button>
+          </div>
+          <p class="hint">保存后调用「重启本地节点」即可让端口/启用状态生效。启用前请务必设置认证，避免成为开放代理。</p>
+        </div>
+        <div class="card">
+          <h3>Cloudflare Tunnel</h3>
+          <div class="ln-fields" id="ln-cf-fields"></div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-ln-restart">重启本地节点与隧道</button>
+          </div>
+          <p class="hint">本机无公网 IP 时，用 cloudflared 把本地节点映射为公网 HTTPS 地址（需已安装 cloudflared）。模式优先级：token 远程隧道 &gt; 命名隧道（hostname+uuid+凭据文件）&gt; 快速隧道。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 服务配置面板（仅管理员） ============ -->
     <section id="panel-config" class="panel">
       <div class="config-grid">
         <div class="card">
           <h3>运行参数</h3>
-          <div class="field">
-            <label for="api-token-input">接口令牌（若服务已开启鉴权，请在此填写，否则以下操作会返回 401）</label>
-            <input id="api-token-input" type="password" placeholder="留空表示未开启鉴权">
-          </div>
           <div id="config-fields"></div>
           <div class="actions">
             <button type="button" class="btn primary" id="btn-save-config">保存配置</button>
             <button type="button" class="btn ghost" id="btn-reload-config">重新加载</button>
           </div>
+          <p class="hint">保存后立即生效。接口令牌可在顶栏填写（管理员令牌完全访问；普通用户令牌仅可转换与拉取订阅）。</p>
         </div>
         <div class="card">
           <h3>模板管理</h3>
@@ -120,6 +175,17 @@
             Clash 模板占位符：{{proxies}} / {{proxy-groups}} / {{rules}} / {{name}}；
             规则模板占位符：{{proxy}}（替换为手动选择组名）。保存后立即生效。
           </p>
+        </div>
+      </div>
+
+      <!-- 数据备份与迁移 -->
+      <div class="card migrate-card">
+        <h3>数据备份与迁移</h3>
+        <p class="hint">导出当前全部运行时数据（覆盖配置 + 自定义模板 + 隧道凭据等），可下载保存；在另一台机器导入即可快捷迁移。备份包含令牌等敏感信息，请妥善保管。</p>
+        <div class="actions">
+          <button type="button" class="btn primary" id="btn-backup">导出备份（下载 JSON）</button>
+          <button type="button" class="btn ghost" id="btn-restore">导入备份并生效</button>
+          <input type="file" id="restore-file" accept=".json,application/json" class="hidden">
         </div>
       </div>
     </section>

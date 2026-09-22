@@ -85,11 +85,13 @@ class Fetcher {
     }
 
     const retries = Number(cfg.retries) || 0;
+    const backoffBase = Number(cfg.retry_base_ms) || 300;
+    const backoffMax = Number(cfg.retry_max_ms) || 2000;
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (attempt > 0) {
-        // 退避重试：300ms -> 600ms -> 1200ms ...，上限 2s
-        await sleep(Math.min(2000, 300 * 2 ** attempt));
+        // 指数退避：base -> base*2 -> base*4 ...，上限 backoffMax
+        await sleep(Math.min(backoffMax, backoffBase * 2 ** attempt));
       }
       try {
         return await this._fetchOnce(url);
@@ -113,7 +115,7 @@ class Fetcher {
         signal: controller.signal,
         redirect: 'follow',
         headers: {
-          'user-agent': cfg.user_agent || 'SubBridge/1.0',
+          'user-agent': cfg.user_agent,
           accept: '*/*',
         },
       });

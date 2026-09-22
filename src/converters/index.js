@@ -27,7 +27,7 @@ const TARGET_NAMES = Object.keys(TARGETS);
  * @param {string} target 目标格式（clash/singbox/links/v2ray）
  * @param {Array} nodes 节点列表
  * @param {object} opts 转换选项
- * @param {object} ctx 上下文（config/templatesDir/dataDir）
+ * @param {object} ctx 上下文（config/templatesDir/store）
  * @returns {Promise<string>}
  */
 async function convert(target, nodes, opts, ctx) {

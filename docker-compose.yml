@@ -2,9 +2,17 @@
 # SubBridge docker-compose 编排
 # 使用方式：
 #   docker compose up -d
-# 可选环境变量：
-#   SUBBRIDGE_UPSTREAM_PROXY  上游转发代理（http/https）
-#   SUBBRIDGE_API_TOKEN       接口鉴权令牌
+# 可选环境变量（均支持前台配置，这里仅注入便于容器化部署）：
+#   SUBBRIDGE_UPSTREAM_PROXY       上游转发代理（http/https）
+#   SUBBRIDGE_API_TOKEN            管理员令牌
+#   SUBBRIDGE_USER_TOKEN           普通用户令牌
+#   SUBBRIDGE_LOCALNODE_ENABLED    是否启用本机节点代理（true/false）
+#   SUBBRIDGE_LOCALNODE_HTTP_PORT  本机 HTTP 代理端口
+#   SUBBRIDGE_LOCALNODE_SOCKS_PORT 本机 SOCKS5 代理端口
+#   SUBBRIDGE_LOCALNODE_USERNAME   本机代理用户名
+#   SUBBRIDGE_LOCALNODE_PASSWORD   本机代理密码
+# 启用 CF 隧道时，需把 cloudflared 二进制挂载进容器：
+#   - /path/to/cloudflared:/usr/local/bin/cloudflared
 # ============================================================
 services:
   subbridge:
@@ -17,8 +25,16 @@ services:
     environment:
       # 上游转发代理，例如 http://user:pass@host:port；留空表示直连
       - SUBBRIDGE_UPSTREAM_PROXY=${SUBBRIDGE_UPSTREAM_PROXY:-}
-      # 接口鉴权令牌；留空表示不鉴权
+      # 接口鉴权令牌；留空表示不鉴权（管理员）
       - SUBBRIDGE_API_TOKEN=${SUBBRIDGE_API_TOKEN:-}
+      # 普通用户令牌（可选）
+      - SUBBRIDGE_USER_TOKEN=${SUBBRIDGE_USER_TOKEN:-}
+      # 本机节点代理（可选，启用后本机作为订阅节点对外提供）
+      - SUBBRIDGE_LOCALNODE_ENABLED=${SUBBRIDGE_LOCALNODE_ENABLED:-false}
+      - SUBBRIDGE_LOCALNODE_HTTP_PORT=${SUBBRIDGE_LOCALNODE_HTTP_PORT:-1082}
+      - SUBBRIDGE_LOCALNODE_SOCKS_PORT=${SUBBRIDGE_LOCALNODE_SOCKS_PORT:-1083}
+      - SUBBRIDGE_LOCALNODE_USERNAME=${SUBBRIDGE_LOCALNODE_USERNAME:-}
+      - SUBBRIDGE_LOCALNODE_PASSWORD=${SUBBRIDGE_LOCALNODE_PASSWORD:-}
     volumes:
       # 运行时配置与模板覆盖持久化
       - ./data:/app/data

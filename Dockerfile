@@ -32,3 +32,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # 启动
 CMD ["node", "app.js"]
+
+# 提示：如需启用 CF 隧道，请把 cloudflared 二进制挂载进容器并配置
+#   -v /path/to/cloudflared:/usr/local/bin/cloudflared
+# 然后在「服务配置 → CF 隧道」中启用（cf_tunnel.enabled=true）。

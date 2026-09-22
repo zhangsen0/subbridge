@@ -22,16 +22,11 @@ function indentBlock(text, spaces) {
     .join('\n');
 }
 
-/** 读取模板文件：优先 data/templates/ 下的覆盖版本，其次内置 templates/ */
+/** 读取模板文件：经存储层读运行时覆盖版本，其次内置 templates/ */
 async function readTemplateFile(name, ctx) {
-  const overridePath = path.join(ctx.dataDir, 'templates', name);
-  try {
-    return await fs.readFile(overridePath, 'utf8');
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
-  const bundledPath = path.join(ctx.templatesDir, name);
-  return fs.readFile(bundledPath, 'utf8');
+  const override = await ctx.store.readTemplate(name);
+  if (override !== null) return override;
+  return fs.readFile(path.join(ctx.templatesDir, name), 'utf8');
 }
 
 /**
@@ -147,11 +142,15 @@ function toClashProxy(n, opts) {
       });
     case 'http':
     case 'socks5':
+      // 支持经 CF 隧道暴露的 TLS 代理节点
       return cleanUndefined({
         ...base,
         type: n.type,
         username: n.username || undefined,
         password: n.password || undefined,
+        tls: n.tls || undefined,
+        'skip-cert-verify': n.skipCertVerify || undefined,
+        sni: n.sni || undefined,
       });
     default:
       // 未知类型原样透传（保留 extras.clash 中的原始定义）
@@ -164,7 +163,7 @@ function toClashProxy(n, opts) {
  * 生成 Clash YAML 配置
  * @param {Array} nodes 节点列表（已过滤/去重/排序/重命名）
  * @param {{name?: string, udp?: boolean, selectGroupName?: string, autoGroupName?: string}} opts
- * @param {{config: object, templatesDir: string, dataDir: string}} ctx
+ * @param {{config: object, templatesDir: string, store: object}} ctx
  * @returns {Promise<string>} Clash YAML 文本
  */
 async function convert(nodes, opts, ctx) {

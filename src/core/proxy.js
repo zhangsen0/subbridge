@@ -14,7 +14,8 @@ class Proxy {
     this.server = fields.server || '';          // 服务器地址
     this.port = fields.port || 0;               // 服务器端口
     this.uuid = fields.uuid || '';              // vmess/vless/tuic 的 uuid
-    this.password = fields.password || '';      // ss/trojan/hysteria2/tuic 的密码
+    this.username = fields.username || '';       // http/socks5 代理的用户名
+    this.password = fields.password || '';      // ss/trojan/hysteria2/tuic 及 http/socks5 的密码
     this.cipher = fields.cipher || '';          // ss/vmess 的加密方式
     this.protocol = fields.protocol || '';      // ssr 协议
     this.obfs = fields.obfs || '';              // ssr 混淆 / hysteria 混淆类型
@@ -39,6 +40,7 @@ class Proxy {
     this.udp = fields.udp ?? true;              // 是否启用 udp
     this.group = fields.group || '';            // 订阅分组（ssr 等）
     this.raw = fields.raw || '';                // 原始分享链接（links 目标格式输出用）
+    this.probe = fields.probe || null;          // 可用性检测结果 {alive, latencyMs, speedBps, testedAt}
     this.extras = fields.extras || {};          // 协议特有扩展字段（如 reality、plugin）
   }
 }

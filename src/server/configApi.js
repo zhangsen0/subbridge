@@ -12,7 +12,7 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { getConfig, updateConfig, maskSecrets, getDataDir } = require('../config/loader');
+const { getConfig, updateConfig, maskSecrets } = require('../config/loader');
 
 // 模板文件名白名单：仅允许安全字符，防止路径穿越
 const TEMPLATE_NAME_RE = /^[\w.-]+$/;
@@ -20,37 +20,33 @@ const TEMPLATE_NAME_RE = /^[\w.-]+$/;
 /** 列出可用模板（内置 + 运行时覆盖，覆盖优先，去重） */
 async function listTemplates(ctx) {
   const names = new Set();
-  for (const dir of [ctx.templatesDir, path.join(ctx.dataDir, 'templates')]) {
-    try {
-      const entries = await fs.readdir(dir);
-      for (const e of entries) {
-        const full = path.join(dir, e);
-        const stat = await fs.stat(full);
-        if (stat.isFile()) names.add(e);
-      }
-    } catch { /* 目录不存在则跳过 */ }
-  }
+  // 运行时模板（经存储层）
+  for (const e of await ctx.store.listTemplates()) names.add(e);
+  // 内置模板（随应用发布，只读回退）
+  try {
+    const entries = await fs.readdir(ctx.templatesDir);
+    for (const e of entries) {
+      const stat = await fs.stat(path.join(ctx.templatesDir, e));
+      if (stat.isFile()) names.add(e);
+    }
+  } catch { /* 目录不存在则跳过 */ }
   return [...names].sort();
 }
 
 /** 读取模板内容：运行时覆盖优先，其次内置 */
 async function readTemplate(name, ctx) {
-  const candidates = [path.join(ctx.dataDir, 'templates', name), path.join(ctx.templatesDir, name)];
-  for (const p of candidates) {
-    try {
-      return await fs.readFile(p, 'utf8');
-    } catch (err) {
-      if (err.code !== 'ENOENT') throw err;
-    }
+  const override = await ctx.store.readTemplate(name);
+  if (override !== null) return override;
+  try {
+    return await fs.readFile(path.join(ctx.templatesDir, name), 'utf8');
+  } catch {
+    return null;
   }
-  return null;
 }
 
-/** 写入/覆盖模板（运行时目录） */
+/** 写入/覆盖模板（经存储层写入运行时目录） */
 async function writeTemplate(name, content, ctx) {
-  const dir = path.join(ctx.dataDir, 'templates');
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(path.join(dir, name), String(content), 'utf8');
+  await ctx.store.writeTemplate(name, String(content));
 }
 
 /** 注册配置与模板管理路由 */

@@ -11,7 +11,7 @@
     "start": "node app.js",
     "dev": "node --watch app.js",
     "test": "node --test",
-    "check": "node --check app.js && node --check src/config/loader.js && node --check src/core/fetcher.js && node --check src/core/pipeline.js && node --check src/core/proxy.js && node --check src/core/util.js && node --check src/server/server.js && node --check src/server/convert.js && node --check src/server/configApi.js && node --check src/parsers/index.js && node --check src/converters/index.js && node --check src/converters/clash.js && node --check src/converters/singbox.js && npm test"
+    "check": "node --check app.js && find src -name '*.js' -print0 | xargs -0 -n1 node --check && npm test"
   },
   "keywords": [
     "subscription",

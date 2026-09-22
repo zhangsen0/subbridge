@@ -15,6 +15,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const yaml = require('js-yaml');
+const { createStore } = require('../store');
 
 const DEFAULT_CONFIG_PATH = path.join(__dirname, 'defaults.yaml');
 
@@ -22,7 +23,7 @@ const DEFAULT_CONFIG_PATH = path.join(__dirname, 'defaults.yaml');
 const state = {
   config: null,          // 生效中的完整配置
   dataDir: 'data',       // 运行时数据目录（相对项目根目录）
-  overlayPath: null,     // 运行时覆盖配置文件路径
+  store: null,           // 存储实例（按 storage.driver 创建）
 };
 
 /**
@@ -34,15 +35,30 @@ const ENV_MAP = [
   ['HOST', 'server.host'],
   ['SUBBRIDGE_UPSTREAM_PROXY', 'fetcher.upstream_proxy'],
   ['SUBBRIDGE_API_TOKEN', 'security.api_token'],
+  ['SUBBRIDGE_USER_TOKEN', 'security.user_token'],
   ['SUBBRIDGE_TIMEOUT_SECONDS', 'fetcher.timeout_seconds', (v) => parseInt(v, 10)],
   ['SUBBRIDGE_USER_AGENT', 'fetcher.user_agent'],
   ['SUBBRIDGE_DEFAULT_TARGET', 'converter.default_target'],
   ['SUBBRIDGE_LOG_LEVEL', 'logging.level'],
   ['SUBBRIDGE_BLOCK_PRIVATE', 'fetcher.block_private', (v) => v === 'true' || v === '1'],
+  ['SUBBRIDGE_LOCALNODE_ENABLED', 'localnode.enabled', (v) => v === 'true' || v === '1'],
+  ['SUBBRIDGE_LOCALNODE_HTTP_PORT', 'localnode.http_port', (v) => parseInt(v, 10)],
+  ['SUBBRIDGE_LOCALNODE_SOCKS_PORT', 'localnode.socks_port', (v) => parseInt(v, 10)],
+  ['SUBBRIDGE_LOCALNODE_USERNAME', 'localnode.username'],
+  ['SUBBRIDGE_LOCALNODE_PASSWORD', 'localnode.password'],
+  ['SUBBRIDGE_LOCALNODE_PUBLIC_ADDRESS', 'localnode.public_address'],
+  ['SUBBRIDGE_CF_TUNNEL_ENABLED', 'cf_tunnel.enabled', (v) => v === 'true' || v === '1'],
+  ['SUBBRIDGE_CF_TUNNEL_TOKEN', 'cf_tunnel.token'],
+  ['SUBBRIDGE_CF_TUNNEL_HOSTNAME', 'cf_tunnel.hostname'],
+  ['SUBBRIDGE_CF_TUNNEL_BINARY', 'cf_tunnel.binary'],
+  ['SUBBRIDGE_PROBE_ENABLED', 'probe.enabled', (v) => v === 'true' || v === '1'],
+  ['SUBBRIDGE_PROBE_TIMEOUT_MS', 'probe.timeout_ms', (v) => parseInt(v, 10)],
+  ['SUBBRIDGE_RELAY_LOCALNODE', 'fetcher.relay_through_localnode', (v) => v === 'true' || v === '1'],
+  ['SUBBRIDGE_STORAGE_DRIVER', 'storage.driver'],
 ];
 
 // 允许前台修改的配置顶层键（防止写入脏数据）
-const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging']);
+const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging', 'localnode', 'cf_tunnel', 'probe', 'subscription', 'storage']);
 
 /** 深合并：对象递归合并，数组与基本类型直接覆盖 */
 function deepMerge(base, override) {
@@ -106,24 +122,37 @@ async function readYaml(filePath) {
 
 /**
  * 加载配置（应用启动时调用一次）
+ * 存储层引导：先用「环境变量或默认驱动 + 数据目录」创建引导存储读取覆盖配置，
+ * 配置组装完成后按最终 storage.driver 重建存储实例。
  * @returns {Promise<object>} 生效中的完整配置
  */
 async function loadConfig() {
   // 1. 内置默认配置
   const defaults = (await readYaml(DEFAULT_CONFIG_PATH)) || {};
 
-  // 2. 运行时覆盖配置
+  // 2. 运行时覆盖配置（经存储层读取）
   const envDataDir = process.env.SUBBRIDGE_DATA_DIR;
   state.dataDir = envDataDir || path.join(process.cwd(), 'data');
-  state.overlayPath = path.join(state.dataDir, 'config.yaml');
-  const overlay = await readYaml(state.overlayPath);
+  const bootstrapDriver = process.env.SUBBRIDGE_STORAGE_DRIVER || (defaults.storage && defaults.storage.driver) || 'file';
+  const bootstrapStore = createStore({ storage: { driver: bootstrapDriver } }, state.dataDir);
+  const overlayText = await bootstrapStore.readConfig();
+  const overlay = overlayText ? yaml.load(overlayText) || {} : {};
 
   // 3. 逐级合并
-  let config = deepMerge(defaults, overlay || {});
+  let config = deepMerge(defaults, overlay);
   config = applyEnv(config);
+
+  // 4. 按最终配置创建存储实例（驱动变更需重启后生效）
+  state.store = createStore(config, state.dataDir);
 
   state.config = config;
   return config;
+}
+
+/** 获取存储实例（其他模块统一经它读写配置/模板/缓存） */
+function getStore() {
+  if (!state.store) throw new Error('存储尚未初始化，请先调用 loadConfig()');
+  return state.store;
 }
 
 /** 获取当前生效配置（配置的单一权威来源） */
@@ -161,9 +190,39 @@ async function updateConfig(partial) {
   }
   Object.assign(state.config, merged);
 
-  // 持久化覆盖层
-  await fs.mkdir(state.dataDir, { recursive: true });
-  await fs.writeFile(state.overlayPath, yaml.dump(clean, { lineWidth: -1 }), 'utf8');
+  // 持久化覆盖层（经存储层写入）
+  await state.store.writeConfig(yaml.dump(clean, { lineWidth: -1 }));
+  return state.config;
+}
+
+/**
+ * 整体替换运行时覆盖配置（数据迁移/备份恢复用）
+ * 与 updateConfig 的区别：以给定对象为唯一覆盖层（旧键一并清除），
+ * 并基于「默认 + 覆盖 + 环境变量」重建生效配置。
+ * @param {object} partial 新的覆盖配置（仅保留白名单顶层键）
+ */
+async function replaceConfig(partial) {
+  if (!state.config) throw new Error('配置尚未加载');
+  if (!partial || typeof partial !== 'object' || Array.isArray(partial)) {
+    throw new Error('配置必须是 JSON 对象');
+  }
+
+  // 过滤非法顶层键
+  const clean = {};
+  for (const key of Object.keys(partial)) {
+    if (ALLOWED_TOP_KEYS.has(key)) clean[key] = partial[key];
+  }
+
+  // 重建生效配置（原地写回，保持对象引用稳定）
+  const defaults = (await readYaml(DEFAULT_CONFIG_PATH)) || {};
+  const merged = applyEnv(deepMerge(defaults, clean));
+  for (const key of Object.keys(state.config)) {
+    delete state.config[key];
+  }
+  Object.assign(state.config, merged);
+
+  // 持久化覆盖层（经存储层整体替换）
+  await state.store.writeConfig(yaml.dump(clean, { lineWidth: -1 }));
   return state.config;
 }
 
@@ -186,8 +245,8 @@ function maskSecrets(config) {
   }
 
   // 掩码安全令牌
-  if (masked.security && masked.security.api_token) {
-    masked.security.api_token = '******';
+  for (const key of ['api_token', 'user_token']) {
+    if (masked.security && masked.security[key]) masked.security[key] = '******';
   }
   return masked;
 }
@@ -196,7 +255,9 @@ module.exports = {
   loadConfig,
   getConfig,
   getDataDir,
+  getStore,
   updateConfig,
+  replaceConfig,
   maskSecrets,
   deepMerge,
 };

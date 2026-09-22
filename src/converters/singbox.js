@@ -152,6 +152,33 @@ function toSingBoxOutbound(n) {
           alpn: n.alpn ? n.alpn.split(',') : ['h3'],
         }),
       });
+    case 'http':
+      return cleanUndefined({
+        type: 'http',
+        tag,
+        server: n.server,
+        server_port: n.port,
+        username: n.username || undefined,
+        password: n.password || undefined,
+        tls: n.tls
+          ? cleanUndefined({
+              enabled: true,
+              server_name: n.sni || undefined,
+              insecure: n.skipCertVerify || undefined,
+            })
+          : undefined,
+      });
+    case 'socks5':
+      return cleanUndefined({
+        type: 'socks',
+        tag,
+        server: n.server,
+        server_port: n.port,
+        version: '5',
+        username: n.username || undefined,
+        password: n.password || undefined,
+        udp_over_tcp: false,
+      });
     default:
       return null;
   }

@@ -14,8 +14,9 @@ const pipeline = require('../src/core/pipeline');
 const clashConverter = require('../src/converters/clash');
 const singboxConverter = require('../src/converters/singbox');
 const linksConverter = require('../src/converters/links');
+const { FileStore } = require('../src/store/fileStore');
 
-// 最小化上下文（模板目录指向内置 templates/）
+// 最小化上下文（模板目录指向内置 templates/，存储用临时目录）
 const ctx = {
   config: {
     converter: {
@@ -29,7 +30,7 @@ const ctx = {
     },
   },
   templatesDir: `${__dirname}/../templates`,
-  dataDir: `${__dirname}/../data`,
+  store: new FileStore(`${__dirname}/../.tmp-test-store`),
 };
 
 // 构造测试节点

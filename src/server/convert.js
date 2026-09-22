@@ -1,15 +1,17 @@
 'use strict';
 
 /**
- * /convert 转换接口处理逻辑
+ * /convert 与 /sub 共用的转换核心逻辑
  *
- * 流程：解析参数 -> 并发抓取订阅（受限并发） -> 探测格式并解析节点
- *       -> 过滤/去重/排序/重命名 -> 按目标格式转换 -> 返回
+ * 流程：解析参数 -> 抓取订阅（可选经本机节点自中继） -> 探测格式并解析节点
+ *       -> 过滤/去重/排序/重命名 -> 可用性检测（可选） -> 注入本机节点 -> 转换输出
  */
 
 const { Fetcher } = require('../core/fetcher');
 const { parseSubscription } = require('../parsers');
 const { applyPipeline } = require('../core/pipeline');
+const { runChecks } = require('../probe/checker');
+const { safeHeaderValue } = require('../core/util');
 const converters = require('../converters');
 
 /**
@@ -32,6 +34,7 @@ function extractUrls(urlValue) {
 /** 从查询参数构建转换选项（配置为默认值，请求参数可覆盖） */
 function buildOptions(query, config) {
   const conv = (config.converter || {});
+  const probeCfg = (config.probe || {});
   const toBool = (v, def) => {
     if (v === undefined || v === '') return def;
     return v === 'true' || v === '1';
@@ -50,7 +53,21 @@ function buildOptions(query, config) {
     selectGroupName: query.selectGroupName || (conv.clash && conv.clash.select_group_name) || '',
     autoGroupName: query.autoGroupName || (conv.clash && conv.clash.auto_group_name) || '',
     template: query.template || '',
+    probe: toBool(query.probe, !!probeCfg.enabled),
   };
+}
+
+/**
+ * 计算抓取器生效配置：启用"自中继采集"且未显式配置上游代理时，
+ * 通过本机 HTTP 代理节点中转抓取（顺带验证本机节点可用）。
+ */
+function effectiveFetcherConfig(config, ctx) {
+  const fetcher = (config.fetcher || {});
+  if (fetcher.relay_through_localnode && ctx.localnode && !fetcher.upstream_proxy) {
+    const localUrl = ctx.localnode.localProxyUrl();
+    if (localUrl) return { ...fetcher, upstream_proxy: localUrl };
+  }
+  return fetcher;
 }
 
 /**
@@ -84,6 +101,109 @@ async function fetchAll(urls, fetcher, config) {
   return results;
 }
 
+/**
+ * 可用性检测：TCP 连通性（全部节点）+ 真实测速（http/socks5 节点）
+ * 按配置剔除不可达节点、追加延迟后缀。
+ */
+async function applyProbe(nodes, config, warnings) {
+  const probeCfg = (config.probe || {});
+  if (!nodes.length) return nodes;
+
+  const checked = await runChecks(nodes, {
+    concurrency: probeCfg.concurrency || 10,
+    timeoutMs: probeCfg.timeout_ms || 3000,
+    speedTest: !!probeCfg.speed_test,
+    speedTestUrl: probeCfg.speed_test_url,
+    speedTestBytes: probeCfg.speed_test_bytes,
+  });
+
+  let alive = checked.filter((n) => !n.probe || n.probe.alive);
+  const deadCount = checked.length - alive.length;
+  if (deadCount) warnings.push(`可用性检测：${deadCount} 个节点不可达`);
+
+  if (probeCfg.append_latency) {
+    alive = alive.map((n) => {
+      if (!n.probe || n.probe.latencyMs == null) return n;
+      const clone = Object.assign(Object.create(Object.getPrototypeOf(n)), n);
+      clone.name = `${n.name} [${n.probe.latencyMs}ms]`;
+      return clone;
+    });
+  }
+
+  return probeCfg.drop_unreachable === false ? checked : alive;
+}
+
+/**
+ * 构建转换结果（/convert 与 /sub 共用）
+ * @param {string[]} urls 订阅地址列表
+ * @param {object} opts 转换选项（buildOptions 输出）
+ * @param {{config: object, templatesDir: string, store: object, localnode?: object}} ctx
+ * @returns {Promise<{output: string, warnings: string[]}>}
+ */
+async function buildConverted(urls, opts, ctx) {
+  const config = ctx.config;
+  const warnings = [];
+  const nodes = [];
+
+  if (urls.length) {
+    // 1. 抓取并解析（可选经本机节点自中继）
+    const fetcher = new Fetcher({ fetcher: effectiveFetcherConfig(config, ctx) });
+    const results = await fetchAll(urls, fetcher, config);
+
+    const skipFailed = (config.converter || {}).skip_failed !== false;
+    for (const r of results) {
+      if (r.error) {
+        warnings.push(r.error);
+        if (!skipFailed) {
+          const err = new Error('订阅抓取失败');
+          err.detail = warnings;
+          throw err;
+        }
+        continue;
+      }
+      if (r.nodes && r.nodes.length) nodes.push(...r.nodes);
+      else warnings.push(`[${r.url}] 未能从订阅内容中解析出任何节点`);
+    }
+
+    if (!nodes.length) {
+      const err = new Error('所有订阅均未解析出可用节点');
+      err.detail = warnings;
+      throw err;
+    }
+  } else {
+    // 未配置任何订阅地址：允许仅返回本机节点（本机作为订阅源使用）
+    warnings.push('未配置主订阅地址，仅返回本机节点');
+  }
+
+  // 2. 过滤/去重/排序/重命名
+  let processed = applyPipeline(nodes, opts);
+
+  // 3. 可用性检测（可选）
+  if (opts.probe) {
+    processed = await applyProbe(processed, config, warnings);
+  }
+
+  // 4. 注入本机节点（Clash / sing-box 目标；本机作为订阅节点使用）
+  if (ctx.localnode && ['clash', 'singbox'].includes(opts.target)) {
+    let localNodes = [];
+    try {
+      localNodes = await ctx.localnode.localNodes();
+    } catch (err) {
+      warnings.push(`本机节点注入失败: ${err.message}`);
+    }
+    if (localNodes.length) processed.push(...localNodes);
+  }
+
+  // 5. 转换输出
+  let output;
+  try {
+    output = await converters.convert(opts.target, processed, opts, ctx);
+  } catch (err) {
+    throw new Error(`转换失败: ${err.message}`);
+  }
+  return { output, warnings };
+}
+
 /** 校验请求参数，返回错误字符串或空串 */
 function validate(query, config) {
   const opts = buildOptions(query, config);
@@ -108,7 +228,7 @@ function validate(query, config) {
  * /convert 处理器
  * @param {import('fastify').FastifyRequest} req
  * @param {import('fastify').FastifyReply} reply
- * @param {object} ctx { config, templatesDir, dataDir }
+ * @param {object} ctx
  */
 async function handleConvert(req, reply, ctx) {
   const config = ctx.config;
@@ -124,45 +244,17 @@ async function handleConvert(req, reply, ctx) {
   }
 
   const opts = buildOptions(query, config);
-
-  // 抓取并解析
-  const fetcher = new Fetcher(config);
-  const results = await fetchAll(urls, fetcher, config);
-
-  // 汇总节点与警告
-  const nodes = [];
-  const warnings = [];
-  const skipFailed = (config.converter || {}).skip_failed !== false;
-  for (const r of results) {
-    if (r.error) {
-      warnings.push(r.error);
-      if (!skipFailed) {
-        return reply.code(502).send({ error: '订阅抓取失败', detail: warnings });
-      }
-      continue;
-    }
-    if (r.nodes && r.nodes.length) nodes.push(...r.nodes);
-    else warnings.push(`[${r.url}] 未能从订阅内容中解析出任何节点`);
-  }
-
-  if (!nodes.length) {
-    return reply.code(422).send({ error: '所有订阅均未解析出可用节点', detail: warnings });
-  }
-
-  // 过滤/去重/排序/重命名
-  const processed = applyPipeline(nodes, opts);
-
-  // 转换
-  let output;
+  let result;
   try {
-    output = await converters.convert(opts.target, processed, opts, ctx);
+    result = await buildConverted(urls, opts, ctx);
   } catch (err) {
-    return reply.code(500).send({ error: `转换失败: ${err.message}` });
+    if (err.detail) return reply.code(502).send({ error: err.message, detail: err.detail });
+    return reply.code(500).send({ error: err.message });
   }
 
   const headers = { 'content-type': converters.contentTypeFor(opts.target) };
-  if (warnings.length) headers['x-subbridge-warnings'] = warnings.join(' | ');
-  return reply.code(200).headers(headers).send(output);
+  if (result.warnings.length) headers['x-subbridge-warnings'] = result.warnings.map(safeHeaderValue).join(' | ');
+  return reply.code(200).headers(headers).send(result.output);
 }
 
-module.exports = { handleConvert, extractUrls, buildOptions, fetchAll };
+module.exports = { handleConvert, buildConverted, extractUrls, buildOptions, fetchAll };

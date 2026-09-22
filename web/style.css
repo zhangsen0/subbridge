@@ -49,6 +49,7 @@ body {
   cursor: pointer;
   font-size: 14px;
   transition: all .15s;
+  white-space: nowrap;
 }
 .tab:hover { color: var(--text); background: rgba(34, 211, 238, .08); }
 .tab.active {
@@ -57,6 +58,16 @@ body {
   background: rgba(34, 211, 238, .1);
 }
 
+/* 顶栏右侧（令牌 + 页签） */
+.topbar-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.token-input {
+  width: 180px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+.token-input::placeholder { color: var(--text-dim); }
+
 /* ===== 主区域 ===== */
 main { flex: 1; padding: 24px 28px; max-width: 1080px; width: 100%; margin: 0 auto; }
 .panel { display: none; }
@@ -64,6 +75,19 @@ main { flex: 1; padding: 24px 28px; max-width: 1080px; width: 100%; margin: 0 au
 
 .row { margin-bottom: 16px; }
 .row label, .field label { display: block; margin-bottom: 6px; color: var(--text-dim); font-size: 13px; }
+
+/* 高级选项折叠开关 */
+.toggle-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-line input { width: auto; accent-color: var(--accent-strong); cursor: pointer; }
 
 textarea, input, select {
   width: 100%;
@@ -152,3 +176,44 @@ footer { text-align: center; color: var(--text-dim); font-size: 12px; padding: 1
 }
 .toast.error { border-color: var(--danger); }
 .hidden { display: none !important; }
+
+/* ===== 本地节点状态卡 ===== */
+.ln-status { margin-bottom: 20px; }
+.ln-status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.ln-status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.ln-key { color: var(--text-dim); font-size: 12px; }
+.ln-val { font-size: 14px; word-break: break-all; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.dot.on { background: #34d399; box-shadow: 0 0 6px #34d399; }
+.dot.off { background: var(--danger); }
+
+/* 本机订阅源卡片 */
+.sub-source { margin-top: 20px; }
+.sub-source .tpl-bar input { font-family: "JetBrains Mono", Consolas, monospace; font-size: 12.5px; }
+
+/* ===== 多端适配（移动优先补充） ===== */
+@media (max-width: 640px) {
+  .topbar { padding: 12px 14px; }
+  .brand { flex-direction: column; gap: 2px; }
+  .brand h1 { font-size: 18px; }
+  .topbar-right { width: 100%; justify-content: space-between; }
+  .token-input { flex: 1; min-width: 0; }
+  .tabs { order: 3; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { flex: 1; text-align: center; padding: 8px 6px; font-size: 13px; }
+  main { padding: 14px; }
+  .actions .btn { flex: 1; min-width: 120px; }
+  .result-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .result-actions { width: 100%; }
+  .result-actions .btn { flex: 1; }
+  .tpl-bar { flex-wrap: wrap; }
+  .tpl-bar select { flex-basis: 100%; }
+  footer { font-size: 11px; }
+}
