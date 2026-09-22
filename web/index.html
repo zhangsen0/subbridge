@@ -17,85 +17,154 @@
   </script>
 </head>
 <body>
-  <header class="topbar">
+  <!-- 顶栏：品牌 + 主题 + 难度分段 + 登录态 -->
+  <header class="top">
     <div class="brand">
-      <h1>SubBridge</h1>
-      <span class="slogan">抓取 · 节点池 · 订阅源</span>
+      <span class="logo">⚡</span>
+      <div>
+        <div class="t1">SubBridge</div>
+        <div class="t2">抓取 · 节点池 · 订阅源</div>
+      </div>
     </div>
-    <div class="topbar-right">
-      <select id="mode-select" title="使用难度：简单 = 常用功能；高级 = 全部管理；专家 = 调试与原文">
-        <option value="simple">简单模式</option>
-        <option value="advanced">高级模式</option>
-        <option value="expert">专家模式</option>
-      </select>
-      <button id="btn-theme" class="btn ghost small" type="button" title="切换亮色 / 暗色主题">亮色</button>
-      <input id="api-token-input" class="token-input" type="password"
-        placeholder="令牌" title="已登录则自动填充；管理员令牌完全访问，普通用户令牌仅抓取/订阅/节点库。">
-      <button id="btn-login" class="btn small" type="button" title="账号密码 / 令牌登录">登录</button>
-      <nav class="tabs">
-        <button class="tab active" data-tab="grab" type="button">驾驶舱</button>
-        <button class="tab" data-tab="pool" type="button">节点库</button>
-        <button class="tab admin-only hidden" data-tab="logs" type="button" data-mode="advanced">事件日志</button>
-        <button class="tab admin-only hidden" data-tab="localnode" type="button" data-mode="advanced">本地节点</button>
-        <button class="tab admin-only hidden" data-tab="config" type="button" data-mode="advanced">全站参数</button>
-      </nav>
+    <div class="grow"></div>
+    <button id="btn-theme" class="ghost" type="button" title="切换主题">🌓</button>
+    <div class="seg" id="mode-switch">
+      <button type="button" data-mode="simple">简单</button>
+      <button type="button" data-mode="advanced">高级</button>
+      <button type="button" data-mode="expert">专家</button>
     </div>
+    <span class="badge" id="role-badge">未登录</span>
+    <button id="btn-login" type="button">登录</button>
   </header>
 
-  <main>
-    <!-- ============ 驾驶舱（主页） ============ -->
-    <section id="panel-grab" class="panel active">
-      <!-- KPI 概览 -->
-      <div class="kpi-grid" id="kpi-grid">
-        <div class="kpi card">
-          <div class="kpi-label">节点池总数</div>
-          <div class="kpi-value" id="kpi-pool-total">-</div>
-          <div class="kpi-sub" id="kpi-pool-alive">可用 -</div>
-        </div>
-        <div class="kpi card">
-          <div class="kpi-label">抓取日志</div>
-          <div class="kpi-value" id="kpi-log-total">-</div>
-          <div class="kpi-sub" id="kpi-log-ok">成功 - · 失败 -</div>
-        </div>
-        <div class="kpi card">
-          <div class="kpi-label">本机节点</div>
-          <div class="kpi-value" id="kpi-localnode">-</div>
-          <div class="kpi-sub" id="kpi-tunnel">隧道 -</div>
-        </div>
-        <div class="kpi card">
-          <div class="kpi-label">主订阅源</div>
-          <div class="kpi-value" id="kpi-subcount">-</div>
-          <div class="kpi-sub" id="kpi-merge">合并主订阅 - · 含节点池 -</div>
-        </div>
-      </div>
+  <div class="layout">
+    <!-- 侧边导航 -->
+    <nav class="side" id="nav">
+      <div class="nav-item on" data-tab="grab"><span class="ico">📊</span>驾驶舱</div>
+      <div class="nav-item" data-tab="pool"><span class="ico">🗄️</span>节点库</div>
+      <div class="nav-item admin-only hidden" data-tab="logs" data-mode="advanced"><span class="ico">📜</span>事件日志</div>
+      <div class="nav-item admin-only hidden" data-tab="localnode" data-mode="advanced"><span class="ico">🖥️</span>本地节点</div>
+      <div class="nav-item admin-only hidden" data-tab="config" data-mode="advanced"><span class="ico">⚙️</span>全站参数</div>
+      <div class="nav-tip">简单模式显示常用功能；高级模式显示全部管理；专家模式提供调试与原文。</div>
+    </nav>
 
-      <!-- 抓取输入区 -->
-      <div class="card grab-box">
-        <h3>抓取来源 <span class="tag tag-auto">自动识别</span></h3>
-        <textarea id="grab-input" rows="3" spellcheck="false"
-          placeholder="粘贴订阅链接、网页地址或节点文本，多个用逗号或换行分隔&#10;例：https://example.com/sub?token=xxx 或 https://www.vpngate.net/cn/ 或 ss://..."></textarea>
-        <p class="hint">
-          ✅ 自动识别：订阅链接（ss / ssr / vmess / vless / trojan / hysteria / hysteria2 / tuic，或 Clash / sing-box / v2ray 订阅）·
-          网页（自动发现页面内订阅链接并递归抓取）· 直接粘贴节点文本 · 站点（vpngate 等）。
-          抓取结果自动补充 / 更新进节点池，不会自动删除。支持多订阅链接（逗号/换行分隔）。
-          需鉴权的订阅源可在「全站参数 → 抓取」配置自定义请求头（fetcher.headers）；抓取代理自动从节点池挑选（可用 http 节点）。
-        </p>
-        <div class="actions">
-          <button type="button" class="btn primary" id="btn-grab">抓取并入库</button>
-          <button type="button" class="btn" id="btn-speedtest">抓取并测速</button>
-          <button type="button" class="btn ghost" id="btn-grab-example">填入示例</button>
+    <main class="wrap">
+      <!-- ============ 驾驶舱（主页） ============ -->
+      <section id="panel-grab" class="panel active">
+        <!-- KPI 概览 -->
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi">
+            <div class="kpi-label">节点池总数</div>
+            <div class="kpi-value" id="kpi-pool-total">-</div>
+            <div class="kpi-sub" id="kpi-pool-alive">可用 -</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">抓取日志</div>
+            <div class="kpi-value" id="kpi-log-total">-</div>
+            <div class="kpi-sub" id="kpi-log-ok">成功 - · 失败 -</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">本机节点</div>
+            <div class="kpi-value" id="kpi-localnode">-</div>
+            <div class="kpi-sub" id="kpi-tunnel">隧道 -</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">主订阅源</div>
+            <div class="kpi-value" id="kpi-subcount">-</div>
+            <div class="kpi-sub" id="kpi-merge">合并主订阅 - · 含节点池 -</div>
+          </div>
         </div>
-      </div>
 
-      <!-- 抓取结果 -->
-      <div id="grab-result" class="hidden">
+        <!-- 抓取输入区 -->
+        <div class="card grab-box">
+          <h3>抓取来源 <span class="tag ok">自动识别</span></h3>
+          <textarea id="grab-input" rows="3" spellcheck="false"
+            placeholder="粘贴订阅链接、网页地址或节点文本，多个用逗号或换行分隔&#10;例：https://example.com/sub?token=xxx 或 https://www.vpngate.net/cn/ 或 ss://..."></textarea>
+          <p class="hint">
+            ✅ 自动识别：订阅链接（ss / ssr / vmess / vless / trojan / hysteria / hysteria2 / tuic，或 Clash / sing-box / v2ray 订阅）·
+            网页（自动发现页面内订阅链接并递归抓取）· 直接粘贴节点文本 · 站点（vpngate 等）。
+            抓取结果自动补充 / 更新进节点池，不会自动删除。支持多订阅链接（逗号/换行分隔）。
+            抓取优先本机直连，失败自动回退节点池可用代理中转；需鉴权的订阅源可在「全站参数 → 抓取」配置自定义请求头。
+          </p>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-grab">抓取并入库</button>
+            <button type="button" class="btn" id="btn-speedtest">抓取并测速</button>
+            <button type="button" class="btn ghost" id="btn-grab-example">填入示例</button>
+          </div>
+        </div>
+
+        <!-- 抓取结果 -->
+        <div id="grab-result" class="hidden">
+          <div class="card">
+            <div class="result-head">
+              <h3>本次抓取</h3>
+              <span id="grab-meta" class="meta"></span>
+              <div class="result-actions">
+                <button type="button" class="btn ghost small" id="btn-copy-sub">复制订阅链接</button>
+                <button type="button" class="btn ghost small" data-mode="advanced" id="btn-copy-sub-rules">复制带规则链接</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr>
+                    <th>节点（含来源备注）</th>
+                    <th>类型</th>
+                    <th>服务器:端口</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="grab-nodes"></tbody>
+              </table>
+            </div>
+            <p class="hint" id="grab-warnings"></p>
+            <p class="hint" data-mode="advanced" id="grab-rules-hint"></p>
+          </div>
+        </div>
+
+        <!-- 最近动态 -->
+        <div class="two-col">
+          <div class="card">
+            <h3>最近抓取动态</h3>
+            <div id="recent-logs" class="mini-list">加载中...</div>
+          </div>
+          <div class="card">
+            <h3>最近入库节点</h3>
+            <div id="recent-nodes" class="mini-list">加载中...</div>
+          </div>
+        </div>
+
+        <!-- 调试（专家模式） -->
+        <div class="card" data-mode="expert" id="debug-card">
+          <div class="result-head">
+            <h3>调试 · 原始数据 <span class="tag">专家</span></h3>
+            <div class="toolbar">
+              <button type="button" class="btn small" id="btn-debug-refresh">刷新</button>
+            </div>
+          </div>
+          <textarea id="debug-json" rows="10" spellcheck="false" readonly
+            placeholder="最近事件日志与节点池统计的原始 JSON"></textarea>
+        </div>
+      </section>
+
+      <!-- ============ 节点库 ============ -->
+      <section id="panel-pool" class="panel">
         <div class="card">
           <div class="result-head">
-            <h3>本次抓取</h3>
-            <span id="grab-meta" class="meta"></span>
-            <div class="result-actions">
-              <button type="button" class="btn ghost small" id="btn-copy-sub">复制订阅链接</button>
-              <button type="button" class="btn ghost small" data-mode="advanced" id="btn-copy-sub-rules">复制带规则链接</button>
+            <h3>节点库 <span class="tag">累积 · 不自动删除</span></h3>
+            <div class="toolbar">
+              <input id="pool-search" class="search-input" type="search" placeholder="搜索名称 / 服务器 / 来源">
+              <select id="pool-type">
+                <option value="">全部类型</option>
+              </select>
+              <select id="pool-enabled">
+                <option value="">启用状态：全部</option>
+                <option value="1">仅启用</option>
+                <option value="0">仅停用</option>
+              </select>
+              <label class="toggle-line"><input type="checkbox" id="pool-only-alive"> 只看可用</label>
+              <button type="button" class="btn small" id="btn-pool-probe">测速</button>
+              <button type="button" class="btn ghost small admin-only hidden" id="btn-pool-clear" data-mode="advanced">清空</button>
             </div>
           </div>
           <div class="table-wrap">
@@ -105,299 +174,237 @@
                   <th>节点（含来源备注）</th>
                   <th>类型</th>
                   <th>服务器:端口</th>
-                  <th>状态</th>
+                  <th>状态（延迟 / 速度）</th>
+                  <th>来源</th>
+                  <th>更新时间</th>
+                  <th class="admin-only hidden">开关</th>
+                  <th class="admin-only hidden" data-mode="advanced">操作</th>
                 </tr>
               </thead>
-              <tbody id="grab-nodes"></tbody>
+              <tbody id="pool-body"></tbody>
             </table>
           </div>
-          <p class="hint" id="grab-warnings"></p>
-          <p class="hint" data-mode="advanced" id="grab-rules-hint"></p>
+          <p class="hint">节点自动补充 / 更新入库，检测不可达也保留；停用节点不参与订阅输出；手动删除或清空需显式操作。</p>
         </div>
-      </div>
 
-      <!-- 最近动态 -->
-      <div class="two-col">
+        <!-- 自定义规则（高级+） -->
+        <div class="card" data-mode="advanced" id="rules-card">
+          <div class="result-head">
+            <h3>自定义规则 · 从节点池取节点 <span class="tag">高级</span></h3>
+            <div class="toolbar">
+              <button type="button" class="btn small" id="btn-rules-gen">生成订阅链接</button>
+              <button type="button" class="btn ghost small" id="btn-rules-copy">复制链接</button>
+            </div>
+          </div>
+          <textarea id="rules-input" rows="5" spellcheck="false"
+            placeholder="JSON 或 YAML 规则数组，逐条生效；规则默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:300},{&quot;type&quot;:&quot;sort&quot;,&quot;key&quot;:&quot;latency&quot;,&quot;order&quot;:&quot;asc&quot;},{&quot;type&quot;:&quot;limit&quot;,&quot;count&quot;:20}]"></textarea>
+          <div class="preset-row">
+            <label>内置模板</label>
+            <select id="rules-preset"><option value="">选择模板…</option></select>
+            <button type="button" class="btn ghost small" id="btn-rules-preset">填入模板</button>
+            <span class="preset-desc" id="rules-preset-desc"></span>
+          </div>
+          <p class="hint">
+            可用规则：include / exclude（名称正则）、type（节点类型）、country（国家，如 JP/HK/US）、
+            source（来源域名包含）、latency（延迟上限 ms）、speed（速度下限 B/s）、sort（排序）、limit（数量上限）。
+            规则默认开启，每条规则可加 &quot;enabled&quot;:false 单独停用；停用节点不参与订阅输出，可加 &quot;include_disabled&quot;:1 临时包含。
+            生成的链接即可在 Clash / sing-box 等客户端直接订阅。
+          </p>
+          <div id="rules-result" class="hidden">
+            <p class="hint">订阅链接（可复制）：</p>
+            <code id="rules-url" class="url-box"></code>
+          </div>
+        </div>
+
+        <!-- 质量门槛（高级+）：按多指标自动开关节点 -->
+        <div class="card" data-mode="advanced" id="quality-card">
+          <div class="result-head">
+            <h3>质量门槛 · 按指标自动开关节点 <span class="tag">高级</span></h3>
+            <div class="toolbar">
+              <select id="quality-mode">
+                <option value="all">模式：全部通过才算合格</option>
+                <option value="any">模式：任一通过即算合格</option>
+              </select>
+              <button type="button" class="btn small" id="btn-quality-apply">立即应用</button>
+            </div>
+          </div>
+          <textarea id="quality-input" rows="5" spellcheck="false"
+            placeholder="JSON 或 YAML 门槛数组，逐条生效；默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;alive&quot;},{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:500},{&quot;type&quot;:&quot;speed&quot;,&quot;min_bps&quot;:1000000},{&quot;type&quot;:&quot;score&quot;,&quot;min_score&quot;:60},{&quot;type&quot;:&quot;name&quot;,&quot;exclude&quot;:&quot;测试|过期&quot;}]"></textarea>
+          <div class="preset-row">
+            <label>内置模板</label>
+            <select id="quality-preset"><option value="">选择模板…</option></select>
+            <button type="button" class="btn ghost small" id="btn-quality-preset">填入模板</button>
+            <span class="preset-desc" id="quality-preset-desc"></span>
+          </div>
+          <p class="hint">
+            质量指标：alive（可用性）、latency（延迟 ms）、speed（速度 B/s）、score（质量分 0-100：
+            可用性 40 + 延迟 30 + 速度 30）、name（名称排除）。不合格节点自动停用、合格节点自动启用，结果持久化。
+            在「全站参数 → 节点池」开启 pool.quality_enabled 后，每次测速完成自动应用；「立即应用」可手动强制执行。
+            未测节点默认放行（pool.quality_default_pass 可调）。
+          </p>
+          <div id="quality-result" class="hidden">
+            <p class="hint" id="quality-result-text"></p>
+          </div>
+        </div>
+
+        <!-- 自动清理（高级+）：自定义删除逻辑 -->
+        <div class="card" data-mode="advanced" id="cleanup-card">
+          <div class="result-head">
+            <h3>自动清理 · 自定义删除逻辑 <span class="tag">高级</span></h3>
+            <div class="toolbar">
+              <button type="button" class="btn small" id="btn-cleanup-apply">立即清理</button>
+            </div>
+          </div>
+          <textarea id="cleanup-input" rows="5" spellcheck="false"
+            placeholder="JSON 或 YAML 删除规则数组，满足任一规则即删除；默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;unreachable&quot;},{&quot;type&quot;:&quot;stale&quot;,&quot;days&quot;:7},{&quot;type&quot;:&quot;no_probe&quot;,&quot;days&quot;:3},{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:800},{&quot;type&quot;:&quot;score&quot;,&quot;max_score&quot;:30}]"></textarea>
+          <div class="preset-row">
+            <label>内置模板</label>
+            <select id="cleanup-preset"><option value="">选择模板…</option></select>
+            <button type="button" class="btn ghost small" id="btn-cleanup-preset">填入模板</button>
+            <span class="preset-desc" id="cleanup-preset-desc"></span>
+          </div>
+          <p class="hint">
+            删除规则：unreachable（不可达）、stale（超 N 天未更新）、no_probe（入库超 N 天未测速）、
+            latency（延迟超上限）、speed（速度低下限）、score（质量分低）、name（名称正则）、source（来源包含）。
+            默认关闭（保留全部节点）；在「全站参数 → 节点池」开启 pool.cleanup_enabled 后，每次测速/刷新自动清理；
+            「立即清理」可手动强制执行。
+          </p>
+          <div id="cleanup-result" class="hidden">
+            <p class="hint" id="cleanup-result-text"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 事件日志（仅管理员） ============ -->
+      <section id="panel-logs" class="panel">
         <div class="card">
-          <h3>最近抓取动态</h3>
-          <div id="recent-logs" class="mini-list">加载中...</div>
+          <div class="result-head">
+            <h3>事件日志 <span class="tag">全站可检测数据均有记录</span></h3>
+            <div class="toolbar">
+              <select id="log-type">
+                <option value="">全部类型</option>
+                <option value="fetch">抓取</option>
+                <option value="probe">测速</option>
+                <option value="pool">节点池</option>
+                <option value="config">配置</option>
+                <option value="system">系统</option>
+              </select>
+              <select id="log-ok">
+                <option value="">全部结果</option>
+                <option value="1">仅成功</option>
+                <option value="0">仅失败</option>
+              </select>
+              <button type="button" class="btn small" id="btn-log-refresh">刷新</button>
+              <button type="button" class="btn ghost small" id="btn-log-clear">清空</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>类型</th>
+                  <th>内容</th>
+                  <th>HTTP</th>
+                  <th>字节</th>
+                  <th>节点</th>
+                  <th>耗时</th>
+                  <th>结果</th>
+                </tr>
+              </thead>
+              <tbody id="log-body"></tbody>
+            </table>
+          </div>
+          <p class="hint">记录抓取（含网页递归子链接）、测速、节点池变更、配置变更、系统操作；超容量自动丢弃最旧记录。</p>
         </div>
+      </section>
+
+      <!-- ============ 本地节点（仅管理员） ============ -->
+      <section id="panel-localnode" class="panel">
+        <div class="ln-status card">
+          <h3>节点运行状态</h3>
+          <div id="ln-status-body" class="ln-status-grid">加载中...</div>
+        </div>
+        <div class="config-grid">
+          <div class="card">
+            <h3>本地节点配置</h3>
+            <div class="ln-fields" id="ln-fields"></div>
+            <div class="actions">
+              <button type="button" class="btn primary" id="btn-ln-save">保存并生效</button>
+              <button type="button" class="btn ghost" id="btn-ln-reload">重新加载</button>
+            </div>
+            <p class="hint">保存后点击「重启本地节点与隧道」即可让端口 / 启用状态生效。启用前请务必设置认证，避免成为开放代理。</p>
+          </div>
+          <div class="card">
+            <h3>Cloudflare Tunnel</h3>
+            <div class="ln-fields" id="ln-cf-fields"></div>
+            <div class="actions">
+              <button type="button" class="btn primary" id="btn-ln-restart">重启本地节点与隧道</button>
+            </div>
+            <p class="hint">本机无公网 IP 时，用 cloudflared 把本地节点映射为公网 HTTPS 地址。模式优先级：token 远程隧道 &gt; 命名隧道 &gt; 快速隧道。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 全站参数（仅管理员） ============ -->
+      <section id="panel-config" class="panel">
         <div class="card">
-          <h3>最近入库节点</h3>
-          <div id="recent-nodes" class="mini-list">加载中...</div>
-        </div>
-      </div>
-
-      <!-- 调试（专家模式） -->
-      <div class="card" data-mode="expert" id="debug-card">
-        <div class="result-head">
-          <h3>调试 · 原始数据 <span class="tag">专家</span></h3>
-          <div class="toolbar">
-            <button type="button" class="btn small" id="btn-debug-refresh">刷新</button>
+          <div class="result-head">
+            <h3>全站参数表 <span class="tag">参数全配置化 · 前台可改</span></h3>
+            <div class="toolbar">
+              <input id="config-search" class="search-input" type="search" placeholder="搜索参数名 / 说明（如 抓取超时 / port / rules）">
+              <button type="button" class="btn ghost small" id="btn-reload-config">重新加载</button>
+            </div>
           </div>
-        </div>
-        <textarea id="debug-json" rows="10" spellcheck="false" readonly
-          placeholder="最近事件日志与节点池统计的原始 JSON"></textarea>
-      </div>
-    </section>
-
-    <!-- ============ 节点库 ============ -->
-    <section id="panel-pool" class="panel">
-      <div class="card">
-        <div class="result-head">
-          <h3>节点库 <span class="tag">累积 · 不自动删除</span></h3>
-          <div class="toolbar">
-            <input id="pool-search" class="search-input" type="search" placeholder="搜索名称 / 服务器 / 来源">
-            <select id="pool-type">
-              <option value="">全部类型</option>
-            </select>
-            <select id="pool-enabled">
-              <option value="">启用状态：全部</option>
-              <option value="1">仅启用</option>
-              <option value="0">仅停用</option>
-            </select>
-            <label class="toggle-line"><input type="checkbox" id="pool-only-alive"> 只看可用</label>
-            <button type="button" class="btn small" id="btn-pool-probe">测速</button>
-            <button type="button" class="btn ghost small admin-only hidden" id="btn-pool-clear" data-mode="advanced">清空</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>节点（含来源备注）</th>
-                <th>类型</th>
-                <th>服务器:端口</th>
-                <th>状态（延迟 / 速度）</th>
-                <th>来源</th>
-                <th>更新时间</th>
-                <th class="admin-only hidden">开关</th>
-                <th class="admin-only hidden" data-mode="advanced">操作</th>
-              </tr>
-            </thead>
-            <tbody id="pool-body"></tbody>
-          </table>
-        </div>
-        <p class="hint">节点自动补充 / 更新入库，检测不可达也保留；停用节点不参与订阅输出；手动删除或清空需显式操作。</p>
-      </div>
-
-      <!-- 自定义规则（高级+） -->
-      <div class="card" data-mode="advanced" id="rules-card">
-        <div class="result-head">
-          <h3>自定义规则 · 从节点池取节点 <span class="tag">高级</span></h3>
-          <div class="toolbar">
-            <button type="button" class="btn small" id="btn-rules-gen">生成订阅链接</button>
-            <button type="button" class="btn ghost small" id="btn-rules-copy">复制链接</button>
-          </div>
-        </div>
-        <textarea id="rules-input" rows="5" spellcheck="false"
-          placeholder="JSON 或 YAML 规则数组，逐条生效；规则默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:300},{&quot;type&quot;:&quot;sort&quot;,&quot;key&quot;:&quot;latency&quot;,&quot;order&quot;:&quot;asc&quot;},{&quot;type&quot;:&quot;limit&quot;,&quot;count&quot;:20}]"></textarea>
-        <div class="preset-row">
-          <label>内置模板</label>
-          <select id="rules-preset"><option value="">选择模板…</option></select>
-          <button type="button" class="btn ghost small" id="btn-rules-preset">填入模板</button>
-          <span class="preset-desc" id="rules-preset-desc"></span>
-        </div>
-        <p class="hint">
-          可用规则：include / exclude（名称正则）、type（节点类型）、country（国家，如 JP/HK/US）、
-          source（来源域名包含）、latency（延迟上限 ms）、speed（速度下限 B/s）、sort（排序）、limit（数量上限）。
-          规则默认开启，每条规则可加 &quot;enabled&quot;:false 单独停用；停用节点不参与订阅输出，可加 &quot;include_disabled&quot;:1 临时包含。
-          生成的链接即可在 Clash / sing-box 等客户端直接订阅。
-        </p>
-        <div id="rules-result" class="hidden">
-          <p class="hint">订阅链接（可复制）：</p>
-          <code id="rules-url" class="url-box"></code>
-        </div>
-      </div>
-
-      <!-- 质量门槛（高级+）：按多指标自动开关节点 -->
-      <div class="card" data-mode="advanced" id="quality-card">
-        <div class="result-head">
-          <h3>质量门槛 · 按指标自动开关节点 <span class="tag">高级</span></h3>
-          <div class="toolbar">
-            <select id="quality-mode">
-              <option value="all">模式：全部通过才算合格</option>
-              <option value="any">模式：任一通过即算合格</option>
-            </select>
-            <button type="button" class="btn small" id="btn-quality-apply">立即应用</button>
-          </div>
-        </div>
-        <textarea id="quality-input" rows="5" spellcheck="false"
-          placeholder="JSON 或 YAML 门槛数组，逐条生效；默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;alive&quot;},{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:500},{&quot;type&quot;:&quot;speed&quot;,&quot;min_bps&quot;:1000000},{&quot;type&quot;:&quot;score&quot;,&quot;min_score&quot;:60},{&quot;type&quot;:&quot;name&quot;,&quot;exclude&quot;:&quot;测试|过期&quot;}]"></textarea>
-        <div class="preset-row">
-          <label>内置模板</label>
-          <select id="quality-preset"><option value="">选择模板…</option></select>
-          <button type="button" class="btn ghost small" id="btn-quality-preset">填入模板</button>
-          <span class="preset-desc" id="quality-preset-desc"></span>
-        </div>
-        <p class="hint">
-          质量指标：alive（可用性）、latency（延迟 ms）、speed（速度 B/s）、score（质量分 0-100：
-          可用性 40 + 延迟 30 + 速度 30）、name（名称排除）。不合格节点自动停用、合格节点自动启用，结果持久化。
-          在「全站参数 → 节点池」开启 pool.quality_enabled 后，每次测速完成自动应用；「立即应用」可手动强制执行。
-          未测节点默认放行（pool.quality_default_pass 可调）。
-        </p>
-        <div id="quality-result" class="hidden">
-          <p class="hint" id="quality-result-text"></p>
-        </div>
-      </div>
-
-      <!-- 自动清理（高级+）：自定义删除逻辑 -->
-      <div class="card" data-mode="advanced" id="cleanup-card">
-        <div class="result-head">
-          <h3>自动清理 · 自定义删除逻辑 <span class="tag">高级</span></h3>
-          <div class="toolbar">
-            <button type="button" class="btn small" id="btn-cleanup-apply">立即清理</button>
-          </div>
-        </div>
-        <textarea id="cleanup-input" rows="5" spellcheck="false"
-          placeholder="JSON 或 YAML 删除规则数组，满足任一规则即删除；默认开启，加 &quot;enabled&quot;:false 可停用。例：&#10;[{&quot;type&quot;:&quot;unreachable&quot;},{&quot;type&quot;:&quot;stale&quot;,&quot;days&quot;:7},{&quot;type&quot;:&quot;no_probe&quot;,&quot;days&quot;:3},{&quot;type&quot;:&quot;latency&quot;,&quot;max_ms&quot;:800},{&quot;type&quot;:&quot;score&quot;,&quot;max_score&quot;:30}]"></textarea>
-        <div class="preset-row">
-          <label>内置模板</label>
-          <select id="cleanup-preset"><option value="">选择模板…</option></select>
-          <button type="button" class="btn ghost small" id="btn-cleanup-preset">填入模板</button>
-          <span class="preset-desc" id="cleanup-preset-desc"></span>
-        </div>
-        <p class="hint">
-          删除规则：unreachable（不可达）、stale（超 N 天未更新）、no_probe（入库超 N 天未测速）、
-          latency（延迟超上限）、speed（速度低下限）、score（质量分低）、name（名称正则）、source（来源包含）。
-          默认关闭（保留全部节点）；在「全站参数 → 节点池」开启 pool.cleanup_enabled 后，每次测速/刷新自动清理；
-          「立即清理」可手动强制执行。
-        </p>
-        <div id="cleanup-result" class="hidden">
-          <p class="hint" id="cleanup-result-text"></p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 事件日志（仅管理员） ============ -->
-    <section id="panel-logs" class="panel">
-      <div class="card">
-        <div class="result-head">
-          <h3>事件日志 <span class="tag">全站可检测数据均有记录</span></h3>
-          <div class="toolbar">
-            <select id="log-type">
-              <option value="">全部类型</option>
-              <option value="fetch">抓取</option>
-              <option value="probe">测速</option>
-              <option value="pool">节点池</option>
-              <option value="config">配置</option>
-              <option value="system">系统</option>
-            </select>
-            <select id="log-ok">
-              <option value="">全部结果</option>
-              <option value="1">仅成功</option>
-              <option value="0">仅失败</option>
-            </select>
-            <button type="button" class="btn small" id="btn-log-refresh">刷新</button>
-            <button type="button" class="btn ghost small" id="btn-log-clear">清空</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>类型</th>
-                <th>内容</th>
-                <th>HTTP</th>
-                <th>字节</th>
-                <th>节点</th>
-                <th>耗时</th>
-                <th>结果</th>
-              </tr>
-            </thead>
-            <tbody id="log-body"></tbody>
-          </table>
-        </div>
-        <p class="hint">记录抓取（含网页递归子链接）、测速、节点池变更、配置变更、系统操作；超容量自动丢弃最旧记录。</p>
-      </div>
-    </section>
-
-    <!-- ============ 本地节点（仅管理员） ============ -->
-    <section id="panel-localnode" class="panel">
-      <div class="ln-status card">
-        <h3>节点运行状态</h3>
-        <div id="ln-status-body" class="ln-status-grid">加载中...</div>
-      </div>
-      <div class="config-grid">
-        <div class="card">
-          <h3>本地节点配置</h3>
-          <div class="ln-fields" id="ln-fields"></div>
+          <div id="config-fields"></div>
           <div class="actions">
-            <button type="button" class="btn primary" id="btn-ln-save">保存并生效</button>
-            <button type="button" class="btn ghost" id="btn-ln-reload">重新加载</button>
+            <button type="button" class="btn primary" id="btn-save-config">保存全部参数</button>
           </div>
-          <p class="hint">保存后点击「重启本地节点与隧道」即可让端口 / 启用状态生效。启用前请务必设置认证，避免成为开放代理。</p>
+          <p class="hint">保存后立即生效。令牌可在顶栏填写或在登录页用账号密码获取。</p>
         </div>
+
+        <!-- 配置原文（专家） -->
+        <div class="card hidden" data-mode="expert" id="config-raw-card">
+          <div class="result-head">
+            <h3>配置原文 YAML <span class="tag">专家</span></h3>
+            <div class="toolbar">
+              <button type="button" class="btn ghost small" id="btn-raw-load">加载原文</button>
+              <button type="button" class="btn primary small" id="btn-raw-save">保存原文</button>
+            </div>
+          </div>
+          <textarea id="config-raw" rows="16" spellcheck="false" placeholder="点击「加载原文」后编辑；用于调整参数表未覆盖的新键"></textarea>
+          <p class="hint">直接编辑完整 YAML（含注释丢失风险，请谨慎）。保存后立即生效并持久化。</p>
+        </div>
+
         <div class="card">
-          <h3>Cloudflare Tunnel</h3>
-          <div class="ln-fields" id="ln-cf-fields"></div>
+          <h3>模板管理</h3>
+          <div class="tpl-bar">
+            <select id="template-select"></select>
+            <button type="button" class="btn ghost small" id="btn-tpl-load">加载</button>
+            <button type="button" class="btn primary small" id="btn-tpl-save">保存</button>
+          </div>
+          <textarea id="template-editor" rows="14" spellcheck="false"
+            placeholder="选择上方模板后点击「加载」进行编辑"></textarea>
+          <p class="hint">
+            Clash 模板占位符：{{proxies}} / {{proxy-groups}} / {{rules}} / {{name}}；
+            规则模板占位符：{{proxy}}。保存后立即生效。
+          </p>
+        </div>
+
+        <div class="card migrate-card">
+          <h3>数据备份与迁移</h3>
+          <p class="hint">导出当前全部运行时数据（覆盖配置 + 自定义模板 + 隧道凭据等），在另一台机器导入即可快捷迁移。备份包含令牌等敏感信息，请妥善保管。</p>
           <div class="actions">
-            <button type="button" class="btn primary" id="btn-ln-restart">重启本地节点与隧道</button>
-          </div>
-          <p class="hint">本机无公网 IP 时，用 cloudflared 把本地节点映射为公网 HTTPS 地址。模式优先级：token 远程隧道 &gt; 命名隧道 &gt; 快速隧道。</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ 全站参数（仅管理员） ============ -->
-    <section id="panel-config" class="panel">
-      <div class="card">
-        <div class="result-head">
-          <h3>全站参数表 <span class="tag">参数全配置化 · 前台可改</span></h3>
-          <div class="toolbar">
-            <input id="config-search" class="search-input" type="search" placeholder="搜索参数名 / 说明（如 抓取超时 / port / rules）">
-            <button type="button" class="btn ghost small" id="btn-reload-config">重新加载</button>
+            <button type="button" class="btn primary" id="btn-backup">导出备份（下载 JSON）</button>
+            <button type="button" class="btn ghost" id="btn-restore">导入备份并生效</button>
+            <input type="file" id="restore-file" accept=".json,application/json" class="hidden">
           </div>
         </div>
-        <div id="config-fields"></div>
-        <div class="actions">
-          <button type="button" class="btn primary" id="btn-save-config">保存全部参数</button>
-        </div>
-        <p class="hint">保存后立即生效。令牌可在顶栏填写或在登录页用账号密码获取。</p>
-      </div>
+      </section>
+    </main>
+  </div>
 
-      <!-- 配置原文（专家） -->
-      <div class="card hidden" data-mode="expert" id="config-raw-card">
-        <div class="result-head">
-          <h3>配置原文 YAML <span class="tag">专家</span></h3>
-          <div class="toolbar">
-            <button type="button" class="btn ghost small" id="btn-raw-load">加载原文</button>
-            <button type="button" class="btn primary small" id="btn-raw-save">保存原文</button>
-          </div>
-        </div>
-        <textarea id="config-raw" rows="16" spellcheck="false" placeholder="点击「加载原文」后编辑；用于调整参数表未覆盖的新键"></textarea>
-        <p class="hint">直接编辑完整 YAML（含注释丢失风险，请谨慎）。保存后立即生效并持久化。</p>
-      </div>
-
-      <div class="card">
-        <h3>模板管理</h3>
-        <div class="tpl-bar">
-          <select id="template-select"></select>
-          <button type="button" class="btn ghost small" id="btn-tpl-load">加载</button>
-          <button type="button" class="btn primary small" id="btn-tpl-save">保存</button>
-        </div>
-        <textarea id="template-editor" rows="14" spellcheck="false"
-          placeholder="选择上方模板后点击「加载」进行编辑"></textarea>
-        <p class="hint">
-          Clash 模板占位符：{{proxies}} / {{proxy-groups}} / {{rules}} / {{name}}；
-          规则模板占位符：{{proxy}}。保存后立即生效。
-        </p>
-      </div>
-
-      <div class="card migrate-card">
-        <h3>数据备份与迁移</h3>
-        <p class="hint">导出当前全部运行时数据（覆盖配置 + 自定义模板 + 隧道凭据等），在另一台机器导入即可快捷迁移。备份包含令牌等敏感信息，请妥善保管。</p>
-        <div class="actions">
-          <button type="button" class="btn primary" id="btn-backup">导出备份（下载 JSON）</button>
-          <button type="button" class="btn ghost" id="btn-restore">导入备份并生效</button>
-          <input type="file" id="restore-file" accept=".json,application/json" class="hidden">
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer>SubBridge · 抓取与节点转发 · 支持 Clash / sing-box / V2RayN 等客户端</footer>
+  <footer class="foot">SubBridge · 抓取与节点转发 · 支持 Clash / sing-box / V2RayN 等客户端</footer>
   <div id="toast" class="toast hidden"></div>
   <script src="/static/app.js"></script>
 </body>

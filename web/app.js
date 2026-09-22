@@ -111,7 +111,7 @@ function typeBadge(type) {
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
   const btn = $('btn-theme');
-  if (btn) btn.textContent = theme === 'dark' ? '亮色' : '暗色';
+  if (btn) btn.textContent = theme === 'dark' ? '🌙' : '☀️';
 }
 function initTheme() {
   const btn = $('btn-theme');
@@ -127,35 +127,38 @@ function initTheme() {
 /* ---------- 三级使用难度（简单 / 高级 / 专家） ---------- */
 function applyMode(mode) {
   document.body.dataset.mode = mode;
+  document.querySelectorAll('#mode-switch button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.mode === mode);
+  });
   const sel = $('mode-select');
   if (sel) sel.value = mode;
 }
 function initMode() {
-  const sel = $('mode-select');
-  if (!sel) return;
   let mode = 'advanced';
   try { mode = localStorage.getItem(MODE_KEY) || 'advanced'; } catch (e) { /* 忽略 */ }
   if (!['simple', 'advanced', 'expert'].includes(mode)) mode = 'advanced';
   applyMode(mode);
-  sel.addEventListener('change', () => {
-    const next = sel.value;
-    applyMode(next);
-    try { localStorage.setItem(MODE_KEY, next); } catch (e) { /* 忽略 */ }
-    // 切到高级/专家时按需加载隐藏数据
-    if (next !== 'simple' && currentRole === 'admin') {
-      if (next === 'expert') loadDebug();
-      loadLogs(true);
-    }
-    toast(`已切换为${next === 'simple' ? '简单' : next === 'advanced' ? '高级' : '专家'}模式`);
+  document.querySelectorAll('#mode-switch button').forEach((b) => {
+    b.addEventListener('click', () => {
+      const next = b.dataset.mode;
+      applyMode(next);
+      try { localStorage.setItem(MODE_KEY, next); } catch (e) { /* 忽略 */ }
+      // 切到高级/专家时按需加载隐藏数据
+      if (next !== 'simple' && currentRole === 'admin') {
+        if (next === 'expert') loadDebug();
+        loadLogs(true);
+      }
+      toast(`已切换为${next === 'simple' ? '简单' : next === 'advanced' ? '高级' : '专家'}模式`);
+    });
   });
 }
 
-/* ---------- Tab 切换 ---------- */
-document.querySelectorAll('.tab').forEach((tab) => {
+/* ---------- Tab 切换（侧边导航） ---------- */
+document.querySelectorAll('.nav-item').forEach((tab) => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach((t) => t.classList.remove('on'));
     document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
-    tab.classList.add('active');
+    tab.classList.add('on');
     $('panel-' + tab.dataset.tab).classList.add('active');
     // 进入面板时按需加载
     if (tab.dataset.tab === 'pool') loadPool();
@@ -192,7 +195,19 @@ async function identifyRole() {
 
 function applyRoleUi() {
   const isAdmin = currentRole === 'admin';
-  document.querySelectorAll('.tab.admin-only').forEach((tab) => tab.classList.toggle('hidden', !isAdmin));
+  const loggedIn = currentRole === 'admin' || currentRole === 'user';
+  // 登录态徽标 + 登录/退出按钮
+  const badge = $('role-badge');
+  const btn = $('btn-login');
+  if (badge) {
+    badge.textContent = currentRole === 'admin' ? '管理员' : currentRole === 'user' ? '普通用户' : '未登录';
+    badge.className = 'badge ' + (isAdmin ? 'ok' : currentRole === 'user' ? '' : 'warn');
+  }
+  if (btn) {
+    btn.textContent = loggedIn ? '退出' : '登录';
+    btn.classList.toggle('ghost', !loggedIn);
+  }
+  document.querySelectorAll('.nav-item.admin-only').forEach((tab) => tab.classList.toggle('hidden', !isAdmin));
   document.querySelectorAll('.admin-only').forEach((el) => el.classList.toggle('hidden', !isAdmin));
   // 非管理员隐藏操作列相关按钮（删除等）
   document.querySelectorAll('.ops-admin').forEach((el) => el.classList.toggle('hidden', !isAdmin));
@@ -208,7 +223,15 @@ function initLogin() {
   const btn = $('btn-login');
   if (btn) {
     btn.addEventListener('click', () => {
-      location.href = '/login';
+      // 已登录：点击为退出（清除令牌回登录页）；未登录：跳转登录页
+      if (currentRole === 'admin' || currentRole === 'user') {
+        setToken('');
+        currentRole = 'guest';
+        applyRoleUi();
+        location.href = '/login';
+      } else {
+        location.href = '/login';
+      }
     });
   }
   // 已保存令牌自动填充
