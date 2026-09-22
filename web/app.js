@@ -34,6 +34,28 @@ function toast(message, isError) {
   toast._timer = setTimeout(() => el.classList.add('hidden'), 3000);
 }
 
+/* ============ 亮 / 暗主题 ============ */
+const THEME_STORAGE_KEY = 'subbridge-theme';
+
+/** 应用主题并同步按钮文案（按钮文案 = 点击后将切换到的主题） */
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const btn = $('btn-theme');
+  if (btn) btn.textContent = theme === 'dark' ? '亮色' : '暗色';
+}
+
+/** 初始化主题切换：当前主题已在 <head> 内联脚本设置，这里只挂载切换事件 */
+function initTheme() {
+  const btn = $('btn-theme');
+  if (!btn) return;
+  applyTheme(document.documentElement.dataset.theme || 'dark');
+  btn.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (e) { /* 隐私模式忽略 */ }
+    applyTheme(next);
+  });
+}
+
 /** 从嵌套对象按点号路径取值 */
 function getByPath(obj, dottedPath) {
   return dottedPath.split('.').reduce((cur, key) => (cur == null ? undefined : cur[key]), obj);
@@ -621,8 +643,9 @@ $('btn-tpl-save').addEventListener('click', async () => {
 
 /* ============ 初始化 ============ */
 
-/** 初始化流程：先识别角色，再按权限加载数据 */
+/** 初始化流程：主题、角色识别，再按权限加载数据 */
 async function init() {
+  initTheme();
   await identifyRole();
   initAdvancedToggle();
   if (currentRole === 'admin') {
