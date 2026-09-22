@@ -74,6 +74,15 @@ class Fetcher {
    * @returns {Promise<string>} 订阅文本内容
    */
   async fetchText(url) {
+    const meta = await this.fetchMeta(url);
+    return meta.text;
+  }
+
+  /**
+   * 抓取单个地址并返回结构化元信息（状态码 / 字节数 / 内容类型）
+   * @returns {Promise<{text: string, status: number, bytes: number, contentType: string}>}
+   */
+  async fetchMeta(url) {
     const cfg = this.fetcherConfig;
 
     if (!/^https?:\/\//i.test(url)) {
@@ -110,14 +119,17 @@ class Fetcher {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
+      // 请求头：默认 UA + 自定义头（fetcher.headers，可被请求级 headers 参数覆盖）
+      const headers = {
+        'user-agent': cfg.user_agent,
+        accept: '*/*',
+        ...(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {}),
+      };
       const res = await ufetch(url, {
         dispatcher: this.agent,
         signal: controller.signal,
         redirect: 'follow',
-        headers: {
-          'user-agent': cfg.user_agent,
-          accept: '*/*',
-        },
+        headers,
       });
 
       if (!res.ok) {
@@ -135,7 +147,12 @@ class Fetcher {
         }
         chunks.push(chunk);
       }
-      return Buffer.concat(chunks).toString('utf8');
+      return {
+        text: Buffer.concat(chunks).toString('utf8'),
+        status: res.statusCode,
+        bytes: size,
+        contentType: res.headers['content-type'] || '',
+      };
     } finally {
       clearTimeout(timer);
     }

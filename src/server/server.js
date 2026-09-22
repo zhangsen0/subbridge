@@ -25,10 +25,17 @@ const pkg = require('../../package.json');
 const { handleConvert } = require('./convert');
 const { registerConfigApi } = require('./configApi');
 const { registerBackupApi } = require('./backupApi');
+const { registerPoolApi } = require('./poolApi');
+const { registerProbeApi } = require('./probeApi');
+const { registerGrabApi } = require('./grabApi');
+const { registerDashboardApi } = require('./dashboardApi');
+const { registerLoginApi } = require('./loginApi');
+const { FetchLog } = require('./fetchLog');
 const { handleSubscribe } = require('./subscribe');
 const { resolveRole, buildSubscriptionUrl } = require('./auth');
 const { getStore } = require('../config/loader');
 const { LocalNodeManager } = require('../localnode/manager');
+const { NodePool } = require('../core/nodePool');
 
 /** 静态资源 MIME 映射 */
 const MIME_MAP = {
@@ -66,14 +73,18 @@ function createServer(config) {
   ctx.localnode = localnode;
   localnode.start();
 
+  // 抓取日志（内存环形缓冲，容量可配置）与节点池（持久化，自动补充/更新、不自动删除）
+  ctx.fetchLog = new FetchLog((config.fetch_log || {}).capacity);
+  ctx.nodePool = new NodePool(ctx.store);
+
   // 优雅退出时关闭本地代理与隧道
   app.addHook('onClose', async () => {
     localnode.stop();
   });
 
-  // 多级用户鉴权钩子（/ping 与静态资源除外）
+  // 多级用户鉴权钩子（/ping、/login 与静态资源除外）
   app.addHook('onRequest', async (req, reply) => {
-    if (req.url === '/ping' || req.url === '/' || req.url.startsWith('/static/')) return;
+    if (req.url === '/ping' || req.url === '/' || req.url === '/login' || req.url === '/api/login' || req.url.startsWith('/static/')) return;
     const role = resolveRole(req, config);
     if (!role) {
       return reply.code(401).send({ error: '未授权：请在请求中携带正确令牌' });
@@ -97,6 +108,11 @@ function createServer(config) {
   const webDir = path.join(__dirname, '..', '..', 'web');
   app.get('/', async (req, reply) => {
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'index.html')));
+  });
+
+  // 登录页（公开，无需令牌）
+  app.get('/login', async (req, reply) => {
+    reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'login.html')));
   });
 
   // 静态资源（从磁盘读取，便于前台实时修改）
@@ -123,6 +139,28 @@ function createServer(config) {
   // 配置与模板管理
   registerConfigApi(app, ctx);
 
+  // 账号密码 / 令牌登录（公开）
+  registerLoginApi(app, ctx);
+
+  // 节点池管理（仅管理员）与实时测速（管理员/普通用户）
+  registerPoolApi(app, ctx);
+  registerProbeApi(app, ctx);
+
+  // 抓取预览（管理员/普通用户）与驾驶舱概览
+  registerGrabApi(app, ctx);
+  registerDashboardApi(app, ctx);
+
+  // 事件日志（仅管理员）
+  app.get('/api/logs', async (req) => {
+    const q = req.query || {};
+    const ok = q.ok === '1' ? true : q.ok === '0' ? false : undefined;
+    return { logs: ctx.fetchLog.list({ limit: q.limit, ok, type: q.type || undefined }) };
+  });
+  app.post('/api/logs/clear', async () => {
+    ctx.fetchLog.clear();
+    return { ok: true };
+  });
+
   // 数据备份与迁移（仅管理员）
   registerBackupApi(app, ctx);
 
@@ -144,8 +182,10 @@ function createServer(config) {
   app.post('/api/localnode/restart', async (req, reply) => {
     try {
       await localnode.restart();
+      ctx.fetchLog.record({ type: 'system', kind: 'localnode.restart', url: '重启本地节点与隧道', error: '' });
       return { ok: true, localnode: await localnode.status() };
     } catch (err) {
+      ctx.fetchLog.record({ type: 'system', kind: 'localnode.restart', url: '重启本地节点与隧道', error: err.message });
       return reply.code(500).send({ error: `重启失败: ${err.message}` });
     }
   });

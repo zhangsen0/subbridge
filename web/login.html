@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 · SubBridge</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('subbridge-theme');
+        if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = 'dark'; }
+    })();
+  </script>
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="login-brand">
+      <h1>SubBridge</h1>
+      <p>抓取 · 节点池 · 订阅源</p>
+    </div>
+    <div class="login-tabs">
+      <button type="button" class="tab active" data-lm="account">账号密码</button>
+      <button type="button" class="tab" data-lm="token">使用令牌</button>
+    </div>
+
+    <form id="login-account" class="login-form">
+      <div class="field">
+        <label for="login-username">账号</label>
+        <input id="login-username" type="text" autocomplete="username" placeholder="管理员 / 普通用户账号">
+        <p class="hint">账号由部署者在「全站参数 → 安全」中配置（admin_username / user_username），未配置则此方式不可用。</p>
+      </div>
+      <div class="field">
+        <label for="login-password">密码</label>
+        <input id="login-password" type="password" autocomplete="current-password" placeholder="密码">
+        <p class="hint">管理员账号登录后拥有全部权限；普通用户账号仅可抓取 / 订阅 / 节点库。</p>
+      </div>
+      <button type="submit" class="btn primary block">登录</button>
+    </form>
+
+    <form id="login-token" class="login-form hidden">
+      <div class="field">
+        <label for="login-token-input">令牌</label>
+        <input id="login-token-input" type="password" autocomplete="off" placeholder="管理员或普通用户令牌">
+        <p class="hint">令牌由部署者提供：管理员令牌完全访问，普通用户令牌仅抓取 / 订阅 / 节点库。</p>
+      </div>
+      <button type="submit" class="btn primary block">进入</button>
+    </form>
+
+    <p id="login-msg" class="login-msg"></p>
+    <button type="button" id="btn-login-theme" class="btn ghost small">切换主题</button>
+  </div>
+  <script>
+    // 登录页脚本：账号密码 / 令牌两种方式，成功后保存令牌并回到主页
+    (function () {
+      var TOKEN_KEY = 'subbridge-token';
+      var THEME_KEY = 'subbridge-theme';
+
+      // 主题切换
+      var themeBtn = document.getElementById('btn-login-theme');
+      themeBtn.addEventListener('click', function () {
+        var next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+        document.documentElement.dataset.theme = next;
+        themeBtn.textContent = next === 'dark' ? '暗色' : '亮色';
+      });
+      themeBtn.textContent = document.documentElement.dataset.theme === 'dark' ? '暗色' : '亮色';
+
+      // 方式切换
+      function showMode(mode) {
+        document.querySelectorAll('.login-tabs .tab').forEach(function (t) {
+          t.classList.toggle('active', t.dataset.lm === mode);
+        });
+        document.getElementById('login-account').classList.toggle('hidden', mode !== 'account');
+        document.getElementById('login-token').classList.toggle('hidden', mode !== 'token');
+      }
+      document.querySelectorAll('.login-tabs .tab').forEach(function (t) {
+        t.addEventListener('click', function () { showMode(t.dataset.lm); });
+      });
+
+      function msg(text, err) {
+        var el = document.getElementById('login-msg');
+        el.textContent = text || '';
+        el.className = 'login-msg' + (err ? ' err' : '');
+      }
+
+      function submit(body, form) {
+        msg('登录中...');
+        fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (res) {
+            if (!res.ok) { msg(res.d.error || '登录失败', true); return; }
+            try { localStorage.setItem(TOKEN_KEY, res.d.token || ''); } catch (e) {}
+            msg('登录成功，正在进入...');
+            location.href = '/';
+          })
+          .catch(function (e) { msg('网络错误：' + e.message, true); });
+      }
+
+      document.getElementById('login-account').addEventListener('submit', function (e) {
+        e.preventDefault();
+        submit({
+          username: document.getElementById('login-username').value.trim(),
+          password: document.getElementById('login-password').value,
+        }, this);
+      });
+      document.getElementById('login-token').addEventListener('submit', function (e) {
+        e.preventDefault();
+        submit({ token: document.getElementById('login-token-input').value.trim() }, this);
+      });
+    })();
+  </script>
+</body>
+</html>

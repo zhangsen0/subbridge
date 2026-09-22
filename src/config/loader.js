@@ -22,6 +22,7 @@ const DEFAULT_CONFIG_PATH = path.join(__dirname, 'defaults.yaml');
 // 配置状态（模块级单例）
 const state = {
   config: null,          // 生效中的完整配置
+  overlay: {},           // 运行时覆盖层（data/config.yaml 内容，updateConfig 累积更新）
   dataDir: 'data',       // 运行时数据目录（相对项目根目录）
   store: null,           // 存储实例（按 storage.driver 创建）
 };
@@ -36,6 +37,10 @@ const ENV_MAP = [
   ['SUBBRIDGE_UPSTREAM_PROXY', 'fetcher.upstream_proxy'],
   ['SUBBRIDGE_API_TOKEN', 'security.api_token'],
   ['SUBBRIDGE_USER_TOKEN', 'security.user_token'],
+  ['SUBBRIDGE_ADMIN_USERNAME', 'security.admin_username'],
+  ['SUBBRIDGE_ADMIN_PASSWORD', 'security.admin_password'],
+  ['SUBBRIDGE_USER_USERNAME', 'security.user_username'],
+  ['SUBBRIDGE_USER_PASSWORD', 'security.user_password'],
   ['SUBBRIDGE_TIMEOUT_SECONDS', 'fetcher.timeout_seconds', (v) => parseInt(v, 10)],
   ['SUBBRIDGE_USER_AGENT', 'fetcher.user_agent'],
   ['SUBBRIDGE_DEFAULT_TARGET', 'converter.default_target'],
@@ -58,7 +63,7 @@ const ENV_MAP = [
 ];
 
 // 允许前台修改的配置顶层键（防止写入脏数据）
-const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging', 'localnode', 'cf_tunnel', 'probe', 'subscription', 'storage']);
+const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging', 'localnode', 'cf_tunnel', 'probe', 'subscription', 'storage', 'pool', 'grab', 'fetch_log']);
 
 /** 深合并：对象递归合并，数组与基本类型直接覆盖 */
 function deepMerge(base, override) {
@@ -137,6 +142,7 @@ async function loadConfig() {
   const bootstrapStore = createStore({ storage: { driver: bootstrapDriver } }, state.dataDir);
   const overlayText = await bootstrapStore.readConfig();
   const overlay = overlayText ? yaml.load(overlayText) || {} : {};
+  state.overlay = overlay;
 
   // 3. 逐级合并
   let config = deepMerge(defaults, overlay);
@@ -183,15 +189,20 @@ async function updateConfig(partial) {
     if (ALLOWED_TOP_KEYS.has(key)) clean[key] = partial[key];
   }
 
-  // 合并进生效配置（原地写回，保持对象引用稳定，使运行中的服务立即读到新配置）
-  const merged = deepMerge(state.config, clean);
+  // 累积进覆盖层（增量持久化：不覆盖之前已保存的其他键）
+  state.overlay = deepMerge(state.overlay, clean);
+
+  // 基于「默认 + 累积覆盖层 + 环境变量」重建生效配置（原地写回，保持引用稳定）
+  const defaults = (await readYaml(DEFAULT_CONFIG_PATH)) || {};
+  let merged = deepMerge(defaults, state.overlay);
+  merged = applyEnv(merged);
   for (const key of Object.keys(state.config)) {
     delete state.config[key];
   }
   Object.assign(state.config, merged);
 
-  // 持久化覆盖层（经存储层写入）
-  await state.store.writeConfig(yaml.dump(clean, { lineWidth: -1 }));
+  // 持久化完整覆盖层，重启后依然生效
+  await state.store.writeConfig(yaml.dump(state.overlay, { lineWidth: -1 }));
   return state.config;
 }
 
@@ -212,17 +223,18 @@ async function replaceConfig(partial) {
   for (const key of Object.keys(partial)) {
     if (ALLOWED_TOP_KEYS.has(key)) clean[key] = partial[key];
   }
+  state.overlay = clean;
 
   // 重建生效配置（原地写回，保持对象引用稳定）
   const defaults = (await readYaml(DEFAULT_CONFIG_PATH)) || {};
-  const merged = applyEnv(deepMerge(defaults, clean));
+  const merged = applyEnv(deepMerge(defaults, state.overlay));
   for (const key of Object.keys(state.config)) {
     delete state.config[key];
   }
   Object.assign(state.config, merged);
 
   // 持久化覆盖层（经存储层整体替换）
-  await state.store.writeConfig(yaml.dump(clean, { lineWidth: -1 }));
+  await state.store.writeConfig(yaml.dump(state.overlay, { lineWidth: -1 }));
   return state.config;
 }
 

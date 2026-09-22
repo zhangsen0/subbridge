@@ -23,6 +23,7 @@ async function registerBackupApi(app, ctx) {
   // 导出备份
   app.get('/api/backup', async () => {
     const store = ctx.store;
+    ctx.fetchLog.record({ type: 'config', kind: 'backup', url: '导出数据备份', error: '' });
 
     // 覆盖配置原文
     const configText = await store.readConfig();
@@ -104,6 +105,12 @@ async function registerBackupApi(app, ctx) {
       return reply.code(400).send({ error: `导入失败: ${err.message}` });
     }
 
+    ctx.fetchLog.record({
+      type: 'config',
+      kind: 'restore',
+      url: `导入备份恢复（问题 ${problems.length} 项）`,
+      error: problems.length ? problems.join('; ').slice(0, 300) : '',
+    });
     return { ok: true, problems };
   });
 }

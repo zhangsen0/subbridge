@@ -53,4 +53,29 @@ function contentTypeFor(target) {
   }
 }
 
-module.exports = { convert, contentTypeFor, TARGETS, TARGET_NAMES };
+/**
+ * 各目标格式支持的节点类型（clash / singbox 为枚举；links / v2ray 无限制）
+ * 新增协议节点类型时需同步补充此处，保证"不支持的类型"能被明确提示。
+ */
+const TARGET_TYPE_SUPPORT = {
+  clash: new Set(['ss', 'ssr', 'vmess', 'vless', 'trojan', 'hysteria', 'hysteria2', 'tuic', 'http', 'socks5']),
+  singbox: new Set(['ss', 'vmess', 'vless', 'trojan', 'hysteria', 'hysteria2', 'tuic', 'http', 'socks5']),
+};
+
+/**
+ * 返回目标格式不支持（会在输出时被跳过）的节点类型集合
+ * @param {string} target 目标格式
+ * @param {Array} nodes 节点列表
+ * @returns {string[]} 不支持的节点类型（去重）
+ */
+function unsupportedTypes(target, nodes) {
+  const set = TARGET_TYPE_SUPPORT[target];
+  if (!set) return [];
+  const seen = new Set();
+  for (const n of nodes || []) {
+    if (!set.has(n.type)) seen.add(n.type);
+  }
+  return [...seen];
+}
+
+module.exports = { convert, contentTypeFor, TARGETS, TARGET_NAMES, unsupportedTypes };

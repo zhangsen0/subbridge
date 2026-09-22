@@ -50,6 +50,11 @@ function buildOptions(query, config) {
     udp: toBool(query.udp, conv.udp !== false),
     sort: query.sort !== undefined ? query.sort : conv.sort || '',
     dedupe: toBool(query.dedupe, conv.dedupe !== false),
+    appendSource: toBool(query.append_source, conv.append_source !== false),
+    // 请求级自定义头（JSON 对象文本，覆盖 fetcher.headers 全局配置）
+    headers: query.headers !== undefined && query.headers !== '' ? query.headers : '',
+    // 自定义选取规则（从节点池/抓取结果按规则挑选），JSON/YAML 数组文本
+    rules: query.rules !== undefined && query.rules !== '' ? query.rules : '',
     selectGroupName: query.selectGroupName || (conv.clash && conv.clash.select_group_name) || '',
     autoGroupName: query.autoGroupName || (conv.clash && conv.clash.auto_group_name) || '',
     template: query.template || '',
@@ -58,12 +63,35 @@ function buildOptions(query, config) {
 }
 
 /**
- * 计算抓取器生效配置：启用"自中继采集"且未显式配置上游代理时，
- * 通过本机 HTTP 代理节点中转抓取（顺带验证本机节点可用）。
+ * 计算抓取器生效配置（异步，需查节点池）：
+ *   1. 显式配置 fetcher.upstream_proxy 优先
+ *   2. 开启 fetcher.proxy_from_pool 时，从节点池挑选可用 http 代理节点中转
+ *      （"抓取外部节点的代理也从节点池出"）
+ *   3. 启用"自中继采集"且未配置上游时，经本机 HTTP 代理节点中转
  */
-function effectiveFetcherConfig(config, ctx) {
+async function effectiveFetcherConfig(config, ctx) {
   const fetcher = (config.fetcher || {});
-  if (fetcher.relay_through_localnode && ctx.localnode && !fetcher.upstream_proxy) {
+  // 1. 显式配置的上游代理优先
+  if (fetcher.upstream_proxy) return fetcher;
+
+  // 2. 从节点池选代理（默认开启，可配置关闭）
+  if (fetcher.proxy_from_pool !== false && ctx.nodePool) {
+    try {
+      const { pickProxyFromPool } = require('../core/poolProxy');
+      const types = Array.isArray(fetcher.proxy_pool_types) && fetcher.proxy_pool_types.length
+        ? fetcher.proxy_pool_types
+        : ['http'];
+      const picked = await pickProxyFromPool(ctx.nodePool, { types });
+      if (picked) {
+        return { ...fetcher, upstream_proxy: picked.url, _pool_proxy: picked.node };
+      }
+    } catch {
+      /* 池选代理失败时继续尝试其他方式 */
+    }
+  }
+
+  // 3. 本机节点自中继
+  if (fetcher.relay_through_localnode && ctx.localnode) {
     const localUrl = ctx.localnode.localProxyUrl();
     if (localUrl) return { ...fetcher, upstream_proxy: localUrl };
   }
@@ -71,34 +99,25 @@ function effectiveFetcherConfig(config, ctx) {
 }
 
 /**
- * 并发抓取多个订阅地址（受 fetcher.max_concurrency 限制）
- * @returns {Promise<Array<{url: string, nodes?: Array, error?: string}>>}
+ * 抓取多个来源（链接或文本）并写入抓取日志（兼容旧结构，供测试与外部调用）
+ * 返回结果数组：{url, nodes?, error?}
  */
-async function fetchAll(urls, fetcher, config) {
-  const maxConcurrency = Math.max(1, Number((config.fetcher || {}).max_concurrency) || 5);
-  const results = new Array(urls.length);
-  let cursor = 0;
+async function fetchAll(urls, fetcher, config, ctx = {}) {
+  const { fetchSources } = require('../core/grabber');
+  const { nodes, history, errors } = await fetchSources(urls, { fetcher, config });
 
-  const worker = async () => {
-    while (cursor < urls.length) {
-      const idx = cursor++;
-      const url = urls[idx];
-      try {
-        const content = await fetcher.fetchText(url);
-        const { nodes } = parseSubscription(content);
-        results[idx] = { url, nodes };
-      } catch (err) {
-        results[idx] = { url, error: `[${url}] ${err.message}` };
-      }
-    }
-  };
-
-  const workers = [];
-  for (let i = 0; i < Math.min(maxConcurrency, urls.length); i++) {
-    workers.push(worker());
+  // 抓取日志：逐条写入（含网页递归发现的子链接）
+  const via = fetcher.fetcherConfig && fetcher.fetcherConfig.upstream_proxy ? 'proxy' : 'direct';
+  if (ctx.fetchLog) {
+    for (const h of history) ctx.fetchLog.record({ ...h, via });
+    for (const e of errors) ctx.fetchLog.record({ url: e.source, error: e.error, via });
   }
-  await Promise.all(workers);
-  return results;
+
+  return urls.map((url) => {
+    const err = errors.find((e) => e.source === url);
+    if (err) return { url, error: `[${url}] ${err.error}` };
+    return { url, nodes };
+  });
 }
 
 /**
@@ -137,53 +156,122 @@ async function applyProbe(nodes, config, warnings) {
  * 构建转换结果（/convert 与 /sub 共用）
  * @param {string[]} urls 订阅地址列表
  * @param {object} opts 转换选项（buildOptions 输出）
- * @param {{config: object, templatesDir: string, store: object, localnode?: object}} ctx
- * @returns {Promise<{output: string, warnings: string[]}>}
+ * @param {{config: object, templatesDir: string, store: object, localnode?: object, nodePool?: object, fetchLog?: object}} ctx
+ * @param {{extraNodes?: Array}} [options] extraNodes：预置节点（如 /sub 合并节点池），在抓取结果之后并入
+ * @returns {Promise<{output: string, warnings: string[], nodes: Array}>}
  */
-async function buildConverted(urls, opts, ctx) {
+async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
   const config = ctx.config;
   const warnings = [];
   const nodes = [];
+  const fetchedNodes = [];
+  let poolStats = null;
 
   if (urls.length) {
-    // 1. 抓取并解析（可选经本机节点自中继）
-    const fetcher = new Fetcher({ fetcher: effectiveFetcherConfig(config, ctx) });
-    const results = await fetchAll(urls, fetcher, config);
-
-    const skipFailed = (config.converter || {}).skip_failed !== false;
-    for (const r of results) {
-      if (r.error) {
-        warnings.push(r.error);
-        if (!skipFailed) {
-          const err = new Error('订阅抓取失败');
-          err.detail = warnings;
-          throw err;
+    // 1. 抓取并解析（上游代理优先：显式配置 → 节点池挑选 → 本机节点自中继）
+    const fetcherCfg = await effectiveFetcherConfig(config, ctx);
+    // 请求级自定义头（?headers=JSON）覆盖全局配置 fetcher.headers
+    if (opts.headers) {
+      try {
+        const extra = JSON.parse(opts.headers);
+        if (extra && typeof extra === 'object' && !Array.isArray(extra)) {
+          fetcherCfg.headers = { ...(fetcherCfg.headers || {}), ...extra };
         }
-        continue;
+      } catch {
+        /* 非法 JSON 头忽略，走全局配置 */
       }
-      if (r.nodes && r.nodes.length) nodes.push(...r.nodes);
-      else warnings.push(`[${r.url}] 未能从订阅内容中解析出任何节点`);
+    }
+    const fetcher = new Fetcher({ fetcher: fetcherCfg });
+    const { fetchSources } = require('../core/grabber');
+    const poolProxyNode = fetcher.fetcherConfig && fetcher.fetcherConfig._pool_proxy;
+    const via = poolProxyNode ? 'pool-proxy' : fetcher.fetcherConfig && fetcher.fetcherConfig.upstream_proxy ? 'proxy' : 'direct';
+    const proxyUsed = poolProxyNode
+      ? `${poolProxyNode.type}://${poolProxyNode.server}:${poolProxyNode.port}`
+      : fetcher.fetcherConfig && fetcher.fetcherConfig.upstream_proxy ? 'configured' : '';
+    const { nodes: raw, history, errors } = await fetchSources(urls, { fetcher, config });
+
+    // 抓取日志：逐条写入（含网页递归发现的子链接、使用的代理）
+    if (ctx.fetchLog) {
+      for (const h of history) ctx.fetchLog.record({ ...h, via, proxyUsed });
+      for (const e of errors) ctx.fetchLog.record({ url: e.source, error: e.error, via, proxyUsed });
     }
 
-    if (!nodes.length) {
+    // 节点池：抓取结果补充/更新入库（不自动删除；新节点默认启用状态可配置）
+    if (ctx.nodePool && raw.length) {
+      try {
+        poolStats = await ctx.nodePool.upsert(raw, {
+          source: urls.join(', '),
+          defaultEnabled: (config.pool || {}).default_enabled !== false,
+        });
+      } catch (err) {
+        warnings.push(`节点池写入失败: ${err.message}`);
+      }
+    }
+
+    fetchedNodes.push(...raw);
+    const skipFailed = (config.converter || {}).skip_failed !== false;
+    if (errors.length) {
+      for (const e of errors) warnings.push(`[${e.source}] ${e.error}`);
+      if (!skipFailed) {
+        const err = new Error('订阅抓取失败');
+        err.detail = warnings;
+        throw err;
+      }
+    }
+    // 内容为空告警（网页/订阅均未解析出节点）
+    for (const h of history) {
+      if (!h.error && h.nodes === 0) {
+        warnings.push(`[${h.url || '文本输入'}] 未能从内容中解析出任何节点`);
+      }
+    }
+  }
+
+  // 2. 合并抓取结果与预置节点（节点池 / 主订阅）
+  nodes.push(...fetchedNodes, ...extraNodes);
+
+  if (!nodes.length) {
+    if (urls.length) {
       const err = new Error('所有订阅均未解析出可用节点');
       err.detail = warnings;
       throw err;
     }
-  } else {
     // 未配置任何订阅地址：允许仅返回本机节点（本机作为订阅源使用）
     warnings.push('未配置主订阅地址，仅返回本机节点');
   }
 
-  // 2. 过滤/去重/排序/重命名
-  let processed = applyPipeline(nodes, opts);
-
-  // 3. 可用性检测（可选）
-  if (opts.probe) {
-    processed = await applyProbe(processed, config, warnings);
+  // 2.5 自定义选取规则（/convert、/api/grab 传入 ?rules= 时按规则从节点中挑选）
+  if (opts.rules) {
+    const { parseRules, applyRules } = require('../core/rules');
+    const rules = parseRules(opts.rules);
+    if (rules.length) {
+      nodes.splice(0, nodes.length, ...applyRules(nodes, rules));
+    }
   }
 
-  // 4. 注入本机节点（Clash / sing-box 目标；本机作为订阅节点使用）
+  // 3. 过滤/去重/排序/重命名
+  let processed = applyPipeline(nodes, opts);
+
+  // 提示目标格式不支持的节点类型（如 OpenVPN 无法转 Clash 节点，输出时会被跳过）
+  const unsupported = converters.unsupportedTypes(opts.target, processed);
+  if (unsupported.length) {
+    warnings.push(`以下节点类型不支持输出为 ${opts.target}，已跳过：${unsupported.join(' / ')}（可在节点库查看与管理）`);
+  }
+
+  // 4. 可用性检测（可选）
+  if (opts.probe) {
+    processed = await applyProbe(processed, config, warnings);
+    // 按测速延迟排序（需在检测之后；无数据节点排在最后）
+    if (opts.sort === 'latency' || opts.sort === 'latency_desc') {
+      const sorted = processed.slice().sort((a, b) => {
+        const la = a.probe && a.probe.latencyMs != null ? a.probe.latencyMs : Number.POSITIVE_INFINITY;
+        const lb = b.probe && b.probe.latencyMs != null ? b.probe.latencyMs : Number.POSITIVE_INFINITY;
+        return opts.sort === 'latency_desc' ? lb - la : la - lb;
+      });
+      processed = sorted;
+    }
+  }
+
+  // 5. 注入本机节点（Clash / sing-box 目标；本机作为订阅节点使用）
   if (ctx.localnode && ['clash', 'singbox'].includes(opts.target)) {
     let localNodes = [];
     try {
@@ -194,14 +282,41 @@ async function buildConverted(urls, opts, ctx) {
     if (localNodes.length) processed.push(...localNodes);
   }
 
-  // 5. 转换输出
+  // 6. 节点来源备注：默认在节点名后追加 [来源]，标明"从哪个来源抓的"（可配置关闭）
+  if (opts.appendSource) {
+    processed = processed.map((n) => {
+      const label = sourceLabel(n.source);
+      if (!label) return n;
+      const clone = Object.assign(Object.create(Object.getPrototypeOf(n)), n);
+      clone.name = `${n.name} [${label}]`;
+      return clone;
+    });
+  }
+
+  // 7. 转换输出
   let output;
   try {
     output = await converters.convert(opts.target, processed, opts, ctx);
   } catch (err) {
     throw new Error(`转换失败: ${err.message}`);
   }
-  return { output, warnings };
+  return { output, warnings, nodes: processed, poolStats };
+}
+
+/**
+ * 把来源标记压缩为节点名后缀
+ * 订阅/网页链接取主机名（去掉 www.），文本输入标记为"文本"
+ * @param {string} source 节点来源标记
+ * @returns {string} 展示用来源标签（空串表示无来源）
+ */
+function sourceLabel(source) {
+  if (!source) return '';
+  if (source === '文本输入') return '文本';
+  try {
+    return new URL(source).hostname.replace(/^www\./, '');
+  } catch {
+    return String(source).slice(0, 40);
+  }
 }
 
 /** 校验请求参数，返回错误字符串或空串 */

@@ -31,6 +31,15 @@ fetcher:
   max_concurrency: 5
   # 上游转发代理，支持 http/https，例如 http://user:pass@host:port；留空表示直连
   upstream_proxy: ""
+  # 从节点池挑选可用 http 代理节点作为抓取上游（"抓取外部节点的代理也从节点池出"）
+  # 显式配置了 upstream_proxy 时不生效
+  proxy_from_pool: true
+  # 节点池代理类型白名单（当前 undici 仅支持 http(s) 上游，可预留 socks5 扩展）
+  proxy_pool_types:
+    - "http"
+  # 抓取自定义请求头（JSON 对象），如 {"Authorization":"Bearer xxx","Cookie":"a=1"}
+  # 可被请求参数 ?headers=<JSON> 临时覆盖；支持多种客户端订阅源鉴权
+  headers: {}
   # SSRF 防护：禁止抓取内网/保留地址（127.0.0.1、10.x、172.16-31.x、192.168.x、169.254.x、::1、fc00::/7 等）
   block_private: true
   # 内网地址白名单（域名），命中则跳过 SSRF 拦截，例如 ["internal.example.com"]
@@ -45,6 +54,8 @@ converter:
   dedupe: true
   # 节点是否默认开启 udp
   udp: true
+  # 节点名称是否追加来源备注（如 "节点名 [example.com]"，标明从哪个订阅抓取）
+  append_source: true
   # 节点排序：name（名称升序）/ name_desc（名称降序）/ 留空保持原序
   sort: ""
   # 节点名称过滤（正则），留空不过滤
@@ -76,6 +87,12 @@ security:
   # 普通用户令牌：仅可拉取订阅（/convert、/sub），无法修改配置
   # 注意：设置 user_token 时务必同时设置 api_token，否则无人具备管理权限
   user_token: ""
+  # 账号密码登录（登录页 /api/login）：匹配成功返回对应角色令牌
+  # 留空表示不启用该角色的账号登录，仍可用令牌方式访问
+  admin_username: ""
+  admin_password: ""
+  user_username: ""
+  user_password: ""
 
 localnode:
   # 是否启用本机作为订阅节点（默认关闭，避免意外开放代理）
@@ -142,6 +159,13 @@ probe:
 subscription:
   # 本机订阅源（/sub 端点）默认合并的主订阅地址列表
   main_urls: []
+  # 其他订阅链接（自动拉取入池，补充节点库；每行一条，格式：名称|URL）
+  # 与主订阅的区别：extra_sources 只入池累积，是否输出由节点池/规则决定
+  extra_sources: []
+  # 主订阅实时抓取结果是否直接并入 /sub 输出（false 时仅作为节点池来源，不直接输出）
+  merge_main_urls: true
+  # 是否并入节点池累积节点（每次抓取自动补充/更新、不自动删除）
+  include_pool: true
   # /sub 默认目标格式
   default_target: "clash"
   # /sub 默认是否启用可用性检测（可通过 probe=1/0 覆盖）
@@ -150,6 +174,59 @@ subscription:
   cache_seconds: 60
   # /sub 默认订阅名称
   name: "SubBridge"
+  # 自定义选取规则（从节点池取节点时应用，可用 /sub?rules= 或 /convert?rules= 覆盖）
+  # 规则为 JSON/YAML 数组，逐条生效，示例：
+  #   - { type: "latency", max_ms: 300 }
+  #   - { type: "sort", key: "latency", order: "asc" }
+  #   - { type: "limit", count: 20 }
+  # 更多类型见 src/core/rules.js（include/exclude/type/country/source/latency/speed/sort/limit）
+  rules: []
+
+pool:
+  # /sub 输出节点池节点时是否剔除检测不可达的节点（默认保留全部，不做自动删除）
+  drop_unreachable: false
+  # 新入库节点的默认启用状态（可在节点库手动开关；停用节点不参与订阅输出）
+  default_enabled: true
+  # /sub 输出是否包含已停用节点（也可用 ?include_disabled=1 临时覆盖）
+  include_disabled: false
+  # 质量门槛：根据延迟/速度/可用性/质量分等动态指标自动开关节点（测速完成后自动应用）
+  # 默认关闭，避免误停用；开启后不合格节点自动停用、合格节点自动启用
+  quality_enabled: false
+  # 判定模式：all 全部门槛通过才算合格；any 任一门槛通过即算合格
+  quality_mode: "all"
+  # 未测节点（无探测数据）默认视为合格放行，避免刚入库就被停用
+  quality_default_pass: true
+  # 质量门槛列表（JSON/YAML 数组，每条可加 enabled:false 停用），示例：
+  #   - { type: "alive" }
+  #   - { type: "latency", max_ms: 500 }
+  #   - { type: "speed", min_bps: 1000000 }
+  #   - { type: "score", min_score: 60 }
+  #   - { type: "name", exclude: "测试|过期" }
+  quality_gates: []
+  # 自动清理（自定义删除逻辑）：默认关闭（保留全部节点）；开启后按 cleanup_rules 自动删除
+  cleanup_enabled: false
+  # 清理规则（JSON/YAML 数组，满足任一规则即删除；每条可加 enabled:false 停用），示例：
+  #   - { type: "unreachable" }
+  #   - { type: "stale", days: 7 }
+  #   - { type: "no_probe", days: 3 }
+  #   - { type: "latency", max_ms: 800 }
+  #   - { type: "speed", min_bps: 100000 }
+  #   - { type: "score", max_score: 30 }
+  #   - { type: "name", match: "测试|过期" }
+  #   - { type: "source", match: "example.com" }
+  cleanup_rules: []
+
+grab:
+  # 网页抓取：从 HTML 页面递归发现订阅链接的最大深度（0 表示只解析页面本身）
+  max_depth: 2
+  # 网页中发现订阅链接后最多递归抓取的数量
+  max_links: 20
+  # 判定"订阅链接"的路径特征关键词（命中即尝试递归抓取）
+  link_keywords: ["sub", "subscribe", "client", "api", "token", "node", "v2ray", "clash", "config"]
+
+fetch_log:
+  # 抓取日志最大保留条数（内存环形缓冲，超出自动丢弃最旧）
+  capacity: 500
 
 logging:
   # trace / debug / info / warn / error
