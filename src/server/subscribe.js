@@ -132,10 +132,12 @@ async function handleSubscribe(req, reply, ctx) {
     }
 
     // 2. 本机节点入池（来源 localnode），输出时从池取
+    //    默认（localnode.auto_join_pool=true）启动/重启时已自动入池；
+    //    此处作为兜底刷新，保证 /sub 拉取时本机节点始终最新
     if (ctx.localnode) {
       try {
         const localCfg = config.localnode || {};
-        if (localCfg.enabled && localCfg.inject_into_subscription) {
+        if (localCfg.enabled && localCfg.inject_into_subscription && localCfg.auto_join_pool !== false) {
           const lns = await ctx.localnode.localNodes();
           if (lns.length) {
             await ctx.nodePool.upsert(lns, { source: 'localnode' });
@@ -155,7 +157,9 @@ async function handleSubscribe(req, reply, ctx) {
       extraNodes = [];
     }
     if (poolDropUnreachable) {
-      extraNodes = extraNodes.filter((n) => !n.probe || n.probe.alive);
+      // 本机节点（用户主动配置）始终保留，不受不可达过滤影响；
+      // 其余节点按检测结果过滤（未测节点保留）
+      extraNodes = extraNodes.filter((n) => n.source === 'localnode' || !n.probe || n.probe.alive);
     }
     if (rules.length) {
       const { applyRules } = require('../core/rules');

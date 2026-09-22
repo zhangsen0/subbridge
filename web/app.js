@@ -807,6 +807,7 @@ const LOCALNODE_FIELDS = [
   { key: 'localnode.ip_probe_timeout_ms', label: 'IP 探测超时（毫秒）', type: 'number', hint: '' },
   { key: 'localnode.ip_cache_seconds', label: 'IP 缓存（秒）', type: 'number', hint: '' },
   { key: 'localnode.inject_into_subscription', label: '注入订阅结果', type: 'bool', hint: '开启后 /sub 输出自动包含本机节点。' },
+  { key: 'localnode.auto_join_pool', label: '默认加入节点池', type: 'bool', hint: '开启（默认）后，本机节点在启动/重启时自动同步进节点池，从池统一输出；关闭则仅拉取订阅时按需注入，不写入节点池。' },
   { key: 'localnode.http_node_name', label: 'HTTP 节点名称', type: 'text', hint: '' },
   { key: 'localnode.socks_node_name', label: 'SOCKS5 节点名称', type: 'text', hint: '' },
 ];

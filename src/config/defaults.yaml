@@ -121,6 +121,9 @@ localnode:
   ip_cache_seconds: 300
   # 是否将本机节点注入订阅转换结果
   inject_into_subscription: true
+  # 是否默认将本机节点加入节点池（true：启动/重启时自动同步入池，可从池统一输出；
+  # false：仅 /sub 拉取时按需注入，不写入节点池）
+  auto_join_pool: true
   # 注入节点的名称
   http_node_name: "本机-HTTP"
   socks_node_name: "本机-SOCKS5"

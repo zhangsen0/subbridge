@@ -72,11 +72,39 @@ function createServer(config) {
   // 本地节点管理器（本机作为订阅节点 + 可选 CF 隧道）
   const localnode = new LocalNodeManager(config, app.log, ctx.store);
   ctx.localnode = localnode;
-  localnode.start();
 
   // 抓取日志（内存环形缓冲，容量可配置）与节点池（持久化，自动补充/更新、不自动删除）
   ctx.fetchLog = new FetchLog((config.fetch_log || {}).capacity);
   ctx.nodePool = new NodePool(ctx.store);
+
+  // 本机节点默认加入节点池：启动后（以及重启本地节点后）自动同步
+  // 节点池存在时，把本机节点 upsert 入池（来源 localnode），/sub 统一从池输出；
+  // 若本机节点未启用或未开启注入，则移除池中来源为 localnode 的旧节点，避免残留失效节点
+  async function syncLocalNodeToPool() {
+    const lc = (config.localnode || {});
+    try {
+      if (lc.enabled && lc.inject_into_subscription && lc.auto_join_pool !== false) {
+        const lns = await localnode.localNodes();
+        if (lns.length) {
+          const { added, updated } = await ctx.nodePool.upsert(lns, { source: 'localnode' });
+          app.log.info(`本机节点已同步入节点池（新增 ${added} / 更新 ${updated}）`);
+          return;
+        }
+      }
+      // 本机节点不可用时，清理池中来源为 localnode 的残留节点
+      const pool = await ctx.nodePool.list();
+      const staleKeys = pool.filter((n) => n.source === 'localnode').map((n) => n.key);
+      if (staleKeys.length) {
+        await ctx.nodePool.remove(staleKeys);
+        app.log.info(`本机节点未启用/不可用，已从节点池移除 ${staleKeys.length} 个本机节点`);
+      }
+    } catch (err) {
+      app.log.warn(`本机节点同步入池失败: ${err.message}`);
+    }
+  }
+  // 服务就绪后异步同步一次（不阻塞启动）
+  localnode.start();
+  setImmediate(() => { syncLocalNodeToPool().catch(() => {}); });
 
   // 优雅退出时关闭本地代理与隧道
   app.addHook('onClose', async () => {
@@ -186,6 +214,7 @@ function createServer(config) {
   app.post('/api/localnode/restart', async (req, reply) => {
     try {
       await localnode.restart();
+      await syncLocalNodeToPool();
       ctx.fetchLog.record({ type: 'system', kind: 'localnode.restart', url: '重启本地节点与隧道', error: '' });
       return { ok: true, localnode: await localnode.status() };
     } catch (err) {
