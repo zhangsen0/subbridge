@@ -76,8 +76,8 @@ header.top {
 .badge.warn { color: var(--warn); border-color: var(--warn) }
 
 /* 难度分段控件（简单 / 高级 / 专家） */
-.seg { display: flex; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden }
-.seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 7px 14px; font-size: 13px; cursor: pointer; font: inherit }
+.seg { display: flex; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; flex: none }
+.seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 7px 14px; font-size: 13px; cursor: pointer; font: inherit; white-space: nowrap }
 .seg button.on { background: var(--accent); color: #fff }
 
 /* ---------- 布局：侧边导航 + 主内容 ---------- */
@@ -271,8 +271,8 @@ footer.foot {
    - 简单模式：只显示未标记（simple）元素
    - 高级模式：显示 simple + advanced
    - 专家模式：全部显示                                   */
-body[data-mode='simple'] [data-mode] { display: none !important; }
-body[data-mode='advanced'] [data-mode='expert'] { display: none !important; }
+body[data-mode='simple'] [data-mode]:not(.seg button) { display: none !important; }
+body[data-mode='advanced'] [data-mode='expert']:not(.seg button) { display: none !important; }
 
 /* ---------- 面板切换（保留既有 .panel 结构） ---------- */
 .panel { display: none }

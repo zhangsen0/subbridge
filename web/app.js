@@ -30,6 +30,15 @@ function getToken() {
   if (v) return v;
   try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; }
 }
+/** 按点号路径读取配置值（如 security.api_token） */
+function getByPath(obj, dottedPath) {
+  let cur = obj;
+  for (const part of dottedPath.split('.')) {
+    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
 function setToken(v) {
   const el = $('api-token-input');
   if (el && v) el.value = v;
@@ -1189,4 +1198,17 @@ async function init() {
   await identifyRole();
   loadPresets();
 }
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  // 逐个初始化并隔离异常：单个模块出错不阻断其余功能（含登录态识别）
+  const steps = [
+    ['主题', initTheme], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab],
+    ['调试', initDebug], ['节点库', initPool], ['规则', initRules], ['质量', initQuality],
+    ['清理', initCleanup], ['日志', initLogs], ['本地节点', initLocalNode], ['配置', initConfig],
+    ['模板', initTemplates], ['备份', initBackup],
+  ];
+  for (const [name, fn] of steps) {
+    try { fn(); } catch (err) { console.error('初始化[' + name + ']失败:', err); }
+  }
+  identifyRole().catch((err) => console.error('识别角色失败:', err));
+  try { loadPresets(); } catch (err) { console.error('加载模板失败:', err); }
+});
