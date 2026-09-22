@@ -62,10 +62,16 @@ class Fetcher {
    */
   constructor(config) {
     this.fetcherConfig = (config && config.fetcher) || {};
-    // 上游转发代理（http/https），复用同一个连接池，提升效率
+    // 主候选：上游转发代理（http/https）或直连
     this.agent = this.fetcherConfig.upstream_proxy
       ? new ProxyAgent(this.fetcherConfig.upstream_proxy)
       : undefined;
+    // 回退候选：节点池代理（先本机直连，直连拉取失败后回退到节点池代理）
+    // 显式配置了 upstream_proxy 时（用户明确指定转发代理）不叠加回退链
+    this.fallbackAgent =
+      !this.fetcherConfig.upstream_proxy && this.fetcherConfig.fallback_proxy
+        ? new ProxyAgent(this.fetcherConfig.fallback_proxy)
+        : undefined;
   }
 
   /**
@@ -80,7 +86,9 @@ class Fetcher {
 
   /**
    * 抓取单个地址并返回结构化元信息（状态码 / 字节数 / 内容类型）
-   * @returns {Promise<{text: string, status: number, bytes: number, contentType: string}>}
+   * 代理回退链：主候选（直连或显式配置代理）重试失败后，回退到节点池代理再试一轮。
+   * 返回元信息带 proxyUsed 字段（本次实际使用的中转代理，空串表示直连）。
+   * @returns {Promise<{text: string, status: number, bytes: number, contentType: string, proxyUsed: string}>}
    */
   async fetchMeta(url) {
     const cfg = this.fetcherConfig;
@@ -97,22 +105,34 @@ class Fetcher {
     const backoffBase = Number(cfg.retry_base_ms) || 300;
     const backoffMax = Number(cfg.retry_max_ms) || 2000;
     let lastErr;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      if (attempt > 0) {
-        // 指数退避：base -> base*2 -> base*4 ...，上限 backoffMax
-        await sleep(Math.min(backoffMax, backoffBase * 2 ** attempt));
-      }
-      try {
-        return await this._fetchOnce(url);
-      } catch (err) {
-        lastErr = err;
+
+    // 候选链：主候选（直连或显式代理）+ 回退代理（节点池代理，可配置关闭）
+    const candidates = [];
+    candidates.push({ agent: this.agent, proxy: cfg.upstream_proxy || '' });
+    if (cfg.fallback_proxy && this.fallbackAgent) {
+      candidates.push({ agent: this.fallbackAgent, proxy: cfg.fallback_proxy });
+    }
+
+    for (const cand of candidates) {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        if (attempt > 0) {
+          // 指数退避：base -> base*2 -> base*4 ...，上限 backoffMax
+          await sleep(Math.min(backoffMax, backoffBase * 2 ** attempt));
+        }
+        try {
+          const meta = await this._fetchOnce(url, cand.agent);
+          meta.proxyUsed = cand.proxy || '';
+          return meta;
+        } catch (err) {
+          lastErr = err;
+        }
       }
     }
     throw lastErr || new Error('订阅抓取失败');
   }
 
   /** 单次抓取 */
-  async _fetchOnce(url) {
+  async _fetchOnce(url, agent) {
     const cfg = this.fetcherConfig;
     const timeoutMs = (Number(cfg.timeout_seconds) || 15) * 1000;
 
@@ -126,7 +146,7 @@ class Fetcher {
         ...(cfg.headers && typeof cfg.headers === 'object' ? cfg.headers : {}),
       };
       const res = await ufetch(url, {
-        dispatcher: this.agent,
+        dispatcher: agent,
         signal: controller.signal,
         redirect: 'follow',
         headers,

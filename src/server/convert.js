@@ -64,17 +64,24 @@ function buildOptions(query, config) {
 
 /**
  * 计算抓取器生效配置（异步，需查节点池）：
- *   1. 显式配置 fetcher.upstream_proxy 优先
- *   2. 开启 fetcher.proxy_from_pool 时，从节点池挑选可用 http 代理节点中转
- *      （"抓取外部节点的代理也从节点池出"）
- *   3. 启用"自中继采集"且未配置上游时，经本机 HTTP 代理节点中转
+ *   抓取代理优先级（"先本机直连，拉取失败才用节点池代理"）：
+ *   1. 显式配置 fetcher.upstream_proxy 优先（用户明确指定的转发代理，最高优先）
+ *   2. 未显式配置时，主候选为「本机直连」，同时从节点池挑选可用 http 代理作为回退候选
+ *      （fetcher.fallback_proxy = 节点池代理；"抓取外部节点的代理也从节点池出"）
+ *   3. 启用"自中继采集"时，本机 HTTP 代理节点作为主候选（本机中转也属本地优先）
+ *   4. fetcher.pool_empty_fallback_direct 为 false 时：节点池无可用代理则直接失败（不直连）
  */
 async function effectiveFetcherConfig(config, ctx) {
   const fetcher = (config.fetcher || {});
-  // 1. 显式配置的上游代理优先
-  if (fetcher.upstream_proxy) return fetcher;
+  const result = { ...fetcher };
 
-  // 2. 从节点池选代理（默认开启，可配置关闭）
+  // 1. 显式配置的上游代理优先（不再叠加回退链，用户指定即最高优先）
+  if (fetcher.upstream_proxy) {
+    delete result.fallback_proxy;
+    return result;
+  }
+
+  // 2. 从节点池挑选回退代理（默认开启，可配置关闭）
   if (fetcher.proxy_from_pool !== false && ctx.nodePool) {
     try {
       const { pickProxyFromPool } = require('../core/poolProxy');
@@ -83,19 +90,25 @@ async function effectiveFetcherConfig(config, ctx) {
         : ['http'];
       const picked = await pickProxyFromPool(ctx.nodePool, { types });
       if (picked) {
-        return { ...fetcher, upstream_proxy: picked.url, _pool_proxy: picked.node };
+        result.fallback_proxy = picked.url;
+        result._pool_proxy = picked.node;
       }
     } catch {
       /* 池选代理失败时继续尝试其他方式 */
     }
   }
 
-  // 3. 本机节点自中继
+  // 3. 本机节点自中继：本机代理作为主候选（本地优先，无需远端节点）
   if (fetcher.relay_through_localnode && ctx.localnode) {
     const localUrl = ctx.localnode.localProxyUrl();
-    if (localUrl) return { ...fetcher, upstream_proxy: localUrl };
+    if (localUrl) result.upstream_proxy = localUrl;
   }
-  return fetcher;
+
+  // 4. 池空回退直连：要求"无代理即失败"时，若节点池没选出回退代理则标记阻塞
+  if (fetcher.pool_empty_fallback_direct === false && !result.upstream_proxy && !result.fallback_proxy) {
+    result.pool_empty_blocked = true;
+  }
+  return result;
 }
 
 /**
@@ -185,11 +198,17 @@ async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
     }
     const fetcher = new Fetcher({ fetcher: fetcherCfg });
     const { fetchSources } = require('../core/grabber');
+    // 代理使用情况：池回退代理（优先展示）→ 显式/本机代理 → 直连
     const poolProxyNode = fetcher.fetcherConfig && fetcher.fetcherConfig._pool_proxy;
-    const via = poolProxyNode ? 'pool-proxy' : fetcher.fetcherConfig && fetcher.fetcherConfig.upstream_proxy ? 'proxy' : 'direct';
+    const mainProxy = fetcher.fetcherConfig && fetcher.fetcherConfig.upstream_proxy;
+    const via = poolProxyNode ? 'pool-proxy' : mainProxy ? 'proxy' : fetcher.fetcherConfig.pool_empty_blocked ? 'blocked' : 'direct';
     const proxyUsed = poolProxyNode
       ? `${poolProxyNode.type}://${poolProxyNode.server}:${poolProxyNode.port}`
-      : fetcher.fetcherConfig && fetcher.fetcherConfig.upstream_proxy ? 'configured' : '';
+      : mainProxy ? 'configured' : '';
+    if (fetcher.fetcherConfig.pool_empty_blocked) {
+      warnings.push('节点池无可用代理，且已关闭"池空回退直连"，本次抓取未执行');
+      return { output: '', warnings, nodes: [] };
+    }
     const { nodes: raw, history, errors } = await fetchSources(urls, { fetcher, config });
 
     // 抓取日志：逐条写入（含网页递归发现的子链接、使用的代理）
@@ -374,4 +393,4 @@ async function handleConvert(req, reply, ctx) {
   return reply.code(200).headers(headers).send(result.output);
 }
 
-module.exports = { handleConvert, buildConverted, extractUrls, buildOptions, fetchAll };
+module.exports = { handleConvert, buildConverted, extractUrls, buildOptions, fetchAll, effectiveFetcherConfig };

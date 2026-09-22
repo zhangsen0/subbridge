@@ -34,6 +34,9 @@ fetcher:
   # 从节点池挑选可用 http 代理节点作为抓取上游（"抓取外部节点的代理也从节点池出"）
   # 显式配置了 upstream_proxy 时不生效
   proxy_from_pool: true
+  # 节点池无可用代理时，回退为"本机直连"拉取（默认 true）。
+  # 关闭后，节点池无节点 / 无可用代理时将直接失败并记录错误，不再直连。
+  pool_empty_fallback_direct: true
   # 节点池代理类型白名单（当前 undici 仅支持 http(s) 上游，可预留 socks5 扩展）
   proxy_pool_types:
     - "http"
