@@ -1,0 +1,202 @@
+'use strict';
+
+/**
+ * 配置加载器
+ *
+ * 配置优先级（低 -> 高）：
+ *   1. 内置默认配置（src/config/defaults.yaml）
+ *   2. 运行时覆盖配置（data/config.yaml，由 Web 前台写入）
+ *   3. 环境变量（PORT / HOST / SUBBRIDGE_* 等）
+ *
+ * 该模块是全局配置的唯一权威来源（single source of truth），
+ * 其他模块通过 getConfig() 读取，通过 updateConfig() 修改。
+ */
+
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const yaml = require('js-yaml');
+
+const DEFAULT_CONFIG_PATH = path.join(__dirname, 'defaults.yaml');
+
+// 配置状态（模块级单例）
+const state = {
+  config: null,          // 生效中的完整配置
+  dataDir: 'data',       // 运行时数据目录（相对项目根目录）
+  overlayPath: null,     // 运行时覆盖配置文件路径
+};
+
+/**
+ * 环境变量 -> 配置路径 映射表
+ * 每一项：[环境变量名, 配置点路径(点号分隔), 可选值转换函数]
+ */
+const ENV_MAP = [
+  ['PORT', 'server.port', (v) => parseInt(v, 10)],
+  ['HOST', 'server.host'],
+  ['SUBBRIDGE_UPSTREAM_PROXY', 'fetcher.upstream_proxy'],
+  ['SUBBRIDGE_API_TOKEN', 'security.api_token'],
+  ['SUBBRIDGE_TIMEOUT_SECONDS', 'fetcher.timeout_seconds', (v) => parseInt(v, 10)],
+  ['SUBBRIDGE_USER_AGENT', 'fetcher.user_agent'],
+  ['SUBBRIDGE_DEFAULT_TARGET', 'converter.default_target'],
+  ['SUBBRIDGE_LOG_LEVEL', 'logging.level'],
+  ['SUBBRIDGE_BLOCK_PRIVATE', 'fetcher.block_private', (v) => v === 'true' || v === '1'],
+];
+
+// 允许前台修改的配置顶层键（防止写入脏数据）
+const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging']);
+
+/** 深合并：对象递归合并，数组与基本类型直接覆盖 */
+function deepMerge(base, override) {
+  if (override === null || override === undefined) return base;
+  if (Array.isArray(base) || Array.isArray(override)) return override;
+  if (typeof base === 'object' && typeof override === 'object') {
+    const result = { ...base };
+    for (const key of Object.keys(override)) {
+      result[key] = deepMerge(base[key], override[key]);
+    }
+    return result;
+  }
+  return override;
+}
+
+/** 按点号路径读取配置值 */
+function getByPath(obj, dottedPath) {
+  let cur = obj;
+  for (const part of dottedPath.split('.')) {
+    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+
+/** 按点号路径写入配置值 */
+function setByPath(obj, dottedPath, value) {
+  const parts = dottedPath.split('.');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    if (typeof cur[key] !== 'object' || cur[key] === null) cur[key] = {};
+    cur = cur[key];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+/** 应用环境变量覆盖 */
+function applyEnv(config) {
+  for (const [envName, configPath, transform] of ENV_MAP) {
+    const raw = process.env[envName];
+    if (raw === undefined || raw === '') continue;
+    const value = transform ? transform(raw) : raw;
+    if (value !== undefined && !Number.isNaN(value)) {
+      setByPath(config, configPath, value);
+    }
+  }
+  return config;
+}
+
+/** 读取 YAML 文件，文件不存在时返回 null */
+async function readYaml(filePath) {
+  try {
+    const text = await fs.readFile(filePath, 'utf8');
+    return yaml.load(text) || {};
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/**
+ * 加载配置（应用启动时调用一次）
+ * @returns {Promise<object>} 生效中的完整配置
+ */
+async function loadConfig() {
+  // 1. 内置默认配置
+  const defaults = (await readYaml(DEFAULT_CONFIG_PATH)) || {};
+
+  // 2. 运行时覆盖配置
+  const envDataDir = process.env.SUBBRIDGE_DATA_DIR;
+  state.dataDir = envDataDir || path.join(process.cwd(), 'data');
+  state.overlayPath = path.join(state.dataDir, 'config.yaml');
+  const overlay = await readYaml(state.overlayPath);
+
+  // 3. 逐级合并
+  let config = deepMerge(defaults, overlay || {});
+  config = applyEnv(config);
+
+  state.config = config;
+  return config;
+}
+
+/** 获取当前生效配置（配置的单一权威来源） */
+function getConfig() {
+  if (!state.config) throw new Error('配置尚未加载，请先调用 loadConfig()');
+  return state.config;
+}
+
+/** 获取运行时数据目录 */
+function getDataDir() {
+  return state.dataDir;
+}
+
+/**
+ * 运行时更新配置（Web 前台调用）
+ * 仅允许修改白名单内的顶层键；修改会持久化到 data/config.yaml，重启后依然生效。
+ * @param {object} partial 需要修改的配置片段
+ */
+async function updateConfig(partial) {
+  if (!state.config) throw new Error('配置尚未加载');
+  if (!partial || typeof partial !== 'object' || Array.isArray(partial)) {
+    throw new Error('配置片段必须是 JSON 对象');
+  }
+
+  // 过滤非法顶层键
+  const clean = {};
+  for (const key of Object.keys(partial)) {
+    if (ALLOWED_TOP_KEYS.has(key)) clean[key] = partial[key];
+  }
+
+  // 合并进生效配置（原地写回，保持对象引用稳定，使运行中的服务立即读到新配置）
+  const merged = deepMerge(state.config, clean);
+  for (const key of Object.keys(state.config)) {
+    delete state.config[key];
+  }
+  Object.assign(state.config, merged);
+
+  // 持久化覆盖层
+  await fs.mkdir(state.dataDir, { recursive: true });
+  await fs.writeFile(state.overlayPath, yaml.dump(clean, { lineWidth: -1 }), 'utf8');
+  return state.config;
+}
+
+/**
+ * 脱敏配置（用于 API 返回，避免泄露令牌）
+ * 规则：上游代理的密码、安全令牌被掩码替换。
+ */
+function maskSecrets(config) {
+  const masked = JSON.parse(JSON.stringify(config));
+
+  // 掩码上游代理密码
+  if (masked.fetcher && masked.fetcher.upstream_proxy) {
+    try {
+      const u = new URL(masked.fetcher.upstream_proxy);
+      if (u.password) {
+        u.password = '******';
+        masked.fetcher.upstream_proxy = u.toString();
+      }
+    } catch { /* 非标准代理 URL 时原样保留 */ }
+  }
+
+  // 掩码安全令牌
+  if (masked.security && masked.security.api_token) {
+    masked.security.api_token = '******';
+  }
+  return masked;
+}
+
+module.exports = {
+  loadConfig,
+  getConfig,
+  getDataDir,
+  updateConfig,
+  maskSecrets,
+  deepMerge,
+};

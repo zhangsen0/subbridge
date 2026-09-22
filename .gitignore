@@ -1,0 +1,13 @@
+# 依赖
+node_modules/
+
+# 运行时数据（运行时配置、模板覆盖、日志），不提交仓库
+data/
+*.log
+
+# 环境与本地文件
+.env
+.env.*
+.DS_Store
+coverage/
+*.pid

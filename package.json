@@ -1,0 +1,32 @@
+{
+  "name": "subbridge",
+  "version": "1.0.0",
+  "description": "通用订阅转换与节点转发服务：支持多协议解析（ss/ssr/vmess/vless/trojan/hysteria/hysteria2/tuic/clash/v2ray），输出 Clash / sing-box 等目标格式，支持 HTTP(S) 订阅抓取与上游代理转发",
+  "main": "app.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "test": "node --test",
+    "check": "node --check app.js && node --check src/config/loader.js && node --check src/core/fetcher.js && node --check src/core/pipeline.js && node --check src/core/proxy.js && node --check src/core/util.js && node --check src/server/server.js && node --check src/server/convert.js && node --check src/server/configApi.js && node --check src/parsers/index.js && node --check src/converters/index.js && node --check src/converters/clash.js && node --check src/converters/singbox.js && npm test"
+  },
+  "keywords": [
+    "subscription",
+    "converter",
+    "clash",
+    "mihomo",
+    "sing-box",
+    "v2ray",
+    "shadowsocks",
+    "proxy"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "fastify": "^4.28.1",
+    "js-yaml": "^4.1.0",
+    "undici": "^6.21.0"
+  }
+}

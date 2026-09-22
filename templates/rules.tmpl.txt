@@ -1,0 +1,9 @@
+# SubBridge 默认规则模板
+# 说明：{{proxy}} 占位符会被替换为手动选择策略组名称；以 # 开头的行会被忽略。
+# 可按需增删规则，例如：DOMAIN-SUFFIX,google.com,PROXY 或 RULE-SET,telegramcidr,PROXY
+
+# 中国大陆地址直连（需 Clash/Mihomo 内置 GEOIP 数据库）
+GEOIP,CN,DIRECT
+
+# 其余流量走代理
+MATCH,{{proxy}}

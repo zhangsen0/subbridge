@@ -1,0 +1,73 @@
+# ============================================================
+# SubBridge 默认配置
+# 说明：
+#   1. 所有参数均可通过环境变量覆盖（见 README「环境变量」一节）
+#   2. 所有参数均可通过 Web 前台「服务配置」页修改，并持久化到 data/config.yaml
+#   3. 禁止在代码中写死任何运行参数，一律从这里读取
+# ============================================================
+
+server:
+  # 监听地址
+  host: "0.0.0.0"
+  # 监听端口（PaaS 平台通常通过环境变量 PORT 覆盖）
+  port: 8080
+  # 是否信任反向代理传递的 X-Forwarded-* 头
+  trust_proxy: false
+
+fetcher:
+  # 单个订阅抓取超时（秒）
+  timeout_seconds: 15
+  # 抓取失败重试次数
+  retries: 2
+  # 请求 User-Agent
+  user_agent: "SubBridge/1.0"
+  # 单次抓取内容大小上限（字节），默认 10MB
+  max_body_bytes: 10485760
+  # 并发抓取的订阅地址数量上限
+  max_concurrency: 5
+  # 上游转发代理，支持 http/https，例如 http://user:pass@host:port；留空表示直连
+  upstream_proxy: ""
+  # SSRF 防护：禁止抓取内网/保留地址（127.0.0.1、10.x、172.16-31.x、192.168.x、169.254.x、::1、fc00::/7 等）
+  block_private: true
+  # 内网地址白名单（域名），命中则跳过 SSRF 拦截，例如 ["internal.example.com"]
+  private_host_allowlist: []
+
+converter:
+  # 默认目标格式：clash / singbox / links / v2ray
+  default_target: "clash"
+  # 是否按 类型+服务器+端口 去重
+  dedupe: true
+  # 节点是否默认开启 udp
+  udp: true
+  # 节点排序：name（名称升序）/ name_desc（名称降序）/ 留空保持原序
+  sort: ""
+  # 节点名称过滤（正则），留空不过滤
+  include: ""
+  exclude: ""
+  # 节点名称重命名前后缀
+  rename_prefix: ""
+  rename_suffix: ""
+  # 某个订阅抓取失败时是否跳过继续（false 则整体请求失败）
+  skip_failed: true
+  # Clash 模板文件（相对 templates/ 目录，可在前台编辑/新增）
+  template_file: "clash.tmpl.yaml"
+  # 规则模板文件（相对 templates/ 目录，可在前台编辑/新增）
+  rules_file: "rules.tmpl.txt"
+  # Clash 输出相关参数
+  clash:
+    # 手动选择策略组名称
+    select_group_name: "PROXY"
+    # 自动测速策略组名称
+    auto_group_name: "AUTO"
+    # 自动测速探测地址
+    url_test_url: "http://www.gstatic.com/generate_204"
+    # 自动测速间隔（秒）
+    url_test_interval: 300
+
+security:
+  # 若设置，则 /convert 与 /api/* 需要携带令牌（?token= 或 X-API-Token 请求头）
+  api_token: ""
+
+logging:
+  # trace / debug / info / warn / error
+  level: "info"

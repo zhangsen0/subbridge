@@ -1,0 +1,24 @@
+# ============================================================
+# SubBridge docker-compose 编排
+# 使用方式：
+#   docker compose up -d
+# 可选环境变量：
+#   SUBBRIDGE_UPSTREAM_PROXY  上游转发代理（http/https）
+#   SUBBRIDGE_API_TOKEN       接口鉴权令牌
+# ============================================================
+services:
+  subbridge:
+    build: .
+    image: subbridge:latest
+    container_name: subbridge
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # 上游转发代理，例如 http://user:pass@host:port；留空表示直连
+      - SUBBRIDGE_UPSTREAM_PROXY=${SUBBRIDGE_UPSTREAM_PROXY:-}
+      # 接口鉴权令牌；留空表示不鉴权
+      - SUBBRIDGE_API_TOKEN=${SUBBRIDGE_API_TOKEN:-}
+    volumes:
+      # 运行时配置与模板覆盖持久化
+      - ./data:/app/data

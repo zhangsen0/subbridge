@@ -1,0 +1,27 @@
+# SubBridge Clash 配置模板
+#
+# 该模板可由用户自行修改（前台「服务配置 -> 模板管理」或直接编辑 templates/ 目录）。
+# 四个占位符会被服务自动替换（占位符所在行请保持顶格书写）：
+#   proxies 占位符       节点列表（自动生成）
+#   proxy-groups 占位符  策略组列表（自动生成）
+#   rules 占位符         规则列表（来自 rules.tmpl.txt，其中 proxy 占位符会被替换为手动选择组名）
+#   name 占位符          订阅名称（/convert 的 name 参数）
+#
+# 除占位符所在行外，其余配置项（端口、模式、DNS 等）均可按需修改。
+
+mixed-port: 7890
+allow-lan: true
+bind-address: '*'
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+
+proxies:
+{{proxies}}
+
+proxy-groups:
+{{proxy-groups}}
+
+rules:
+{{rules}}

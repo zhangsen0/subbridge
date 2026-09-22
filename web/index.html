@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SubBridge 订阅转换</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>SubBridge</h1>
+      <span class="slogan">通用订阅转换服务</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="convert" type="button">订阅转换</button>
+      <button class="tab" data-tab="config" type="button">服务配置</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ 订阅转换面板 ============ -->
+    <section id="panel-convert" class="panel active">
+      <form id="convert-form" autocomplete="off">
+        <div class="row">
+          <label for="urls">订阅地址（支持多个，逗号或换行分隔）</label>
+          <textarea id="urls" rows="3" spellcheck="false"
+            placeholder="https://example.com/sub?token=xxx&#10;https://example2.com/api/v1/client/subscribe"></textarea>
+        </div>
+        <div class="grid">
+          <div class="field">
+            <label for="target">目标格式</label>
+            <select id="target">
+              <option value="clash">Clash / Mihomo（YAML）</option>
+              <option value="singbox">sing-box（JSON）</option>
+              <option value="links">分享链接（TXT）</option>
+              <option value="v2ray">V2RayN 订阅（BASE64）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="name">订阅名称</label>
+            <input id="name" placeholder="MySub">
+          </div>
+          <div class="field">
+            <label for="include">包含（正则）</label>
+            <input id="include" placeholder="香港|HK">
+          </div>
+          <div class="field">
+            <label for="exclude">排除（正则）</label>
+            <input id="exclude" placeholder="测试|过期">
+          </div>
+          <div class="field">
+            <label for="prefix">名称前缀</label>
+            <input id="prefix" placeholder="如：机场A-">
+          </div>
+          <div class="field">
+            <label for="suffix">名称后缀</label>
+            <input id="suffix" placeholder="如：-VIP">
+          </div>
+          <div class="field">
+            <label for="sort">排序</label>
+            <select id="sort">
+              <option value="">原序</option>
+              <option value="name">名称升序</option>
+              <option value="name_desc">名称降序</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="udp">UDP</label>
+            <select id="udp">
+              <option value="true">开启</option>
+              <option value="false">关闭</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn primary" id="btn-convert">转 换</button>
+          <button type="button" class="btn ghost" id="btn-copy-link">复制订阅链接</button>
+        </div>
+      </form>
+
+      <div id="result-box" class="hidden">
+        <div class="result-head">
+          <h3>转换结果</h3>
+          <span id="result-meta" class="meta"></span>
+          <div class="result-actions">
+            <button type="button" class="btn ghost small" id="btn-copy-result">复制结果</button>
+            <button type="button" class="btn ghost small" id="btn-download">下载</button>
+          </div>
+        </div>
+        <pre id="result" class="result"></pre>
+      </div>
+    </section>
+
+    <!-- ============ 服务配置面板 ============ -->
+    <section id="panel-config" class="panel">
+      <div class="config-grid">
+        <div class="card">
+          <h3>运行参数</h3>
+          <div class="field">
+            <label for="api-token-input">接口令牌（若服务已开启鉴权，请在此填写，否则以下操作会返回 401）</label>
+            <input id="api-token-input" type="password" placeholder="留空表示未开启鉴权">
+          </div>
+          <div id="config-fields"></div>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-save-config">保存配置</button>
+            <button type="button" class="btn ghost" id="btn-reload-config">重新加载</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>模板管理</h3>
+          <div class="tpl-bar">
+            <select id="template-select"></select>
+            <button type="button" class="btn ghost small" id="btn-tpl-load">加载</button>
+            <button type="button" class="btn primary small" id="btn-tpl-save">保存</button>
+          </div>
+          <textarea id="template-editor" rows="18" spellcheck="false"
+            placeholder="选择上方模板后点击「加载」进行编辑"></textarea>
+          <p class="hint">
+            Clash 模板占位符：{{proxies}} / {{proxy-groups}} / {{rules}} / {{name}}；
+            规则模板占位符：{{proxy}}（替换为手动选择组名）。保存后立即生效。
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>SubBridge · 通用订阅转换服务 · 支持 Clash / sing-box / V2RayN 等客户端</footer>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
