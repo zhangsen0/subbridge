@@ -3,12 +3,9 @@
 # SubBridge 一键部署与运维脚本
 # 支持平台：Linux (x86_64 / arm64 / armv7) · macOS (Intel / Apple Silicon)
 # 支持模式：① 本机直跑（自动装 Node、依赖、可选 systemd 服务）
-#           ② Docker Compose（--docker）
-# 用法：
-#   curl -fsSL https://raw.githubusercontent.com/zhangsen0/subbridge/main/install.sh | bash
-#   bash install.sh [--port 8080] [--token <令牌>] [--admin <用户名>] [--password <密码>] [--docker] [--no-service]
-#   bash install.sh <运维命令>    # restart / start / stop / status / logs / update / doctor / backup / help
+#           ② Docker 运行（--docker）
 # 参数全配置化；未传参数时自动生成安全随机值。中文注释，符合项目规范。
+# 运行 `bash install.sh help` 查看完整帮助。
 # =============================================================
 set -euo pipefail
 
@@ -23,7 +20,46 @@ USE_SERVICE=1
 INSTALL_DIR="${SUBBRIDGE_DIR:-$(pwd)}"
 
 usage() {
-  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+SubBridge 一键部署与运维脚本
+
+【安装部署】
+  curl -fsSL https://raw.githubusercontent.com/zhangsen0/subbridge/main/install.sh | bash
+  bash install.sh [参数...]
+
+  参数（均可省略，省略时自动生成安全随机值）：
+    --port <端口>         Web 端口，默认 8080
+    --token <令牌>        访问令牌（订阅/API 鉴权），默认自动生成 UUID
+    --admin <用户名>      管理员账号，默认 admin
+    --password <密码>     管理员密码，默认自动生成
+    --docker              用 Docker 运行（自动拉取镜像）
+    --no-service          跳过 systemd 服务（用 nohup 后台运行）
+    --dir <目录>          部署目录，默认当前目录
+    -h, --help, help      显示本帮助
+
+【运维子命令】（首个参数）
+  bash install.sh restart          重启服务
+  bash install.sh start            启动服务
+  bash install.sh stop             停止服务
+  bash install.sh status           查看运行状态
+  bash install.sh logs [-f] [行数]  查看日志（-f 跟踪输出，默认 100 行）
+  bash install.sh update           更新代码到最新版并重启（git pull + 装依赖）
+  bash install.sh doctor           环境自检（Node/依赖/端口/配置/数据/服务/日志）
+  bash install.sh backup           导出数据备份（含节点池，JSON 文件）
+  bash install.sh help             显示本帮助
+
+【环境变量】（与参数等价，优先读取）
+  PORT  HOST  SUBBRIDGE_API_TOKEN  SUBBRIDGE_ADMIN_USERNAME
+  SUBBRIDGE_ADMIN_PASSWORD  SUBBRIDGE_DIR  NODE_BIN
+
+【示例】
+  bash install.sh                                   # 默认一键部署
+  bash install.sh --port 9090 --token mytoken       # 自定义端口与令牌
+  bash install.sh restart                           # 重启服务
+  bash install.sh logs -f                           # 跟踪查看日志
+  bash install.sh doctor                            # 排查部署问题
+  bash install.sh update                            # 升级到最新版
+EOF
 }
 
 # ---------- 工具函数 ----------
