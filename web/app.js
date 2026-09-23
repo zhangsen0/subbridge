@@ -249,8 +249,8 @@ async function identifyRole() {
     if (!resp.ok) {
       if (resp.status === 401) {
         currentRole = 'guest';
-        applyRoleUi();
-        toast('未授权：请登录或填写令牌', true);
+        // 未登录只能到登录页
+        location.href = '/login';
         return;
       }
       throw new Error('识别角色失败（HTTP ' + resp.status + '）');

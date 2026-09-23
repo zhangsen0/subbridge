@@ -203,6 +203,11 @@ function createServer(config) {
   const noCache = (reply) => reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   app.get('/', async (req, reply) => {
     noCache(reply);
+    // 未登录（无有效令牌）只能看到登录页：未授权直接 302 到 /login
+    const { resolveRole } = require('./auth');
+    if (resolveRole(req, config) == null) {
+      return reply.redirect('/login');
+    }
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'index.html')));
   });
 
