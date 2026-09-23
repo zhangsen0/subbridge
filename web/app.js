@@ -1127,44 +1127,6 @@ function initLocalNode() {
     toast('已重新加载配置');
   });
   $('btn-ln-restart').addEventListener('click', restartLocalNode);
-
-  // 一键单端口部署（Render/Waifly 等仅开放 Web 端口）：shared 模式 + 关闭 SOCKS5 + 启用注入
-  $('btn-ln-onepass').addEventListener('click', async () => {
-    if (!window.confirm('将本机节点配置为「端口复用 + 仅 HTTP（shared 模式，关闭 SOCKS5）」，适合 Render/Waifly 等仅开放 Web 端口的平台。确定应用？')) return;
-    const btn = $('btn-ln-onepass');
-    const oldText = btn.textContent;
-    btn.textContent = '配置中...';
-    btn.disabled = true;
-    try {
-      const current = (currentConfig && currentConfig.localnode) || {};
-      const patch = {
-        localnode: {
-          enabled: true,
-          mode: 'shared',
-          socks_port: 0,
-          inject_into_subscription: true,
-          auto_join_pool: true,
-          // 保留用户已填写的认证与地址，未填则给默认提示
-          username: current.username || 'admin',
-          password: current.password || '',
-          public_address: current.public_address || '',
-        },
-      };
-      await apiJson('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
-      toast('已应用单端口部署配置（shared + 仅 HTTP）');
-      await loadConfig();
-      renderFields('ln-fields', LOCALNODE_FIELDS, currentConfig);
-      renderFields('ln-cf-fields', CF_TUNNEL_FIELDS, currentConfig);
-      loadLocalNodeStatus();
-      loadDashboard();
-      if (currentRole === 'admin') loadLogs(true);
-    } catch (err) {
-      toast('配置失败：' + err.message, true);
-    } finally {
-      btn.textContent = oldText;
-      btn.disabled = false;
-    }
-  });
 }
 
 async function restartLocalNode() {
