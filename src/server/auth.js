@@ -49,7 +49,18 @@ function tokenForRole(config, role) {
 /** 构建本机订阅源链接（按角色携带对应令牌） */
 function buildSubscriptionUrl(req, config, role) {
   const token = tokenForRole(config, role);
-  const origin = `${req.protocol}://${req.hostname}`;
+  const subCfg = (config && config.subscription) || {};
+  // 订阅链接协议：subscription.url_scheme 显式指定（http/https）优先；
+  // 默认 auto：信任反代头 x-forwarded-proto（Render/Zeabur/Nginx 等自动为 https），否则退回请求协议
+  const scheme = String(subCfg.url_scheme || 'auto').toLowerCase();
+  let proto = req.protocol || 'http';
+  const fwd = req.headers && req.headers['x-forwarded-proto'];
+  if (scheme === 'auto') {
+    if (fwd) proto = String(fwd).split(',')[0].trim() || proto;
+  } else {
+    proto = scheme;
+  }
+  const origin = `${proto}://${req.hostname}`;
   return `${origin}/sub${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 }
 

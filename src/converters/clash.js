@@ -180,18 +180,20 @@ async function convert(nodes, opts, ctx) {
   const names = proxies.map((p) => p.name);
 
   // 策略组：AUTO（自动测速）+ PROXY（手动选择，默认指向 AUTO）
+  // 节点池为空时用 DIRECT 兜底（Clash 不允许空 proxies 列表，否则配置校验失败）
+  const groupProxies = names.length ? names : ['DIRECT'];
   const groups = [
     {
       name: autoName,
       type: 'url-test',
       url: urlTest,
       interval,
-      proxies: names,
+      proxies: groupProxies,
     },
     {
       name: selectName,
       type: 'select',
-      proxies: [autoName, ...names],
+      proxies: [autoName, ...groupProxies],
     },
   ];
 
