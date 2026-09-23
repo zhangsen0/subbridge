@@ -182,6 +182,11 @@ async function handleSubscribe(req, reply, ctx) {
       // 其余节点按检测结果过滤（未测节点保留）
       extraNodes = extraNodes.filter((n) => n.source === 'localnode' || !n.probe || n.probe.alive);
     }
+    // 订阅可用性过滤（subscription.only_alive 配置，默认开）：
+    // 必须【先】剔除不可用节点【再】应用选取规则，否则 sort+limit 会把可用节点切出列表
+    if ((config.subscription || {}).only_alive !== false) {
+      extraNodes = extraNodes.filter((n) => n.probe && n.probe.alive);
+    }
     if (rules.length) {
       const { applyRules } = require('../core/rules');
       extraNodes = applyRules(extraNodes, rules);

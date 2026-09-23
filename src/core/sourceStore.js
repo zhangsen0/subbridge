@@ -71,6 +71,10 @@ class SourceStore {
         have.add(url);
       }
     }
+    // 首次启动把并入的源落盘，保证 sources.json 始终存在（备份/迁移可携带完整源+源状态）
+    if (this.state.sources.length) {
+      this._save().catch((err) => console.error('[sourceStore] 初始化落盘失败:', err.message));
+    }
   }
 
   /** 持久化到数据文件，并同步写回配置 extra_sources */
