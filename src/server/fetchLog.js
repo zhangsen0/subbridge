@@ -51,6 +51,19 @@ class FetchLog {
   }
 
   /**
+   * 按条件过滤日志（不分页，最新在前；供分页查询使用）
+   * @param {{ok?: boolean, type?: string}} opts
+   * @returns {Array}
+   */
+  query({ ok, type } = {}) {
+    let arr = this.items.slice().reverse();
+    if (ok === true) arr = arr.filter((i) => !i.error);
+    if (ok === false) arr = arr.filter((i) => !!i.error);
+    if (type) arr = arr.filter((i) => i.type === type);
+    return arr;
+  }
+
+  /**
    * 读取日志（最新在前）
    * @param {{limit?: number, ok?: boolean, type?: string}} opts
    *   limit 条数上限；ok=true 仅成功、ok=false 仅失败；type 按事件类型过滤

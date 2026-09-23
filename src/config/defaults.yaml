@@ -41,9 +41,17 @@ fetcher:
   # 节点池无可用代理时，回退为"本机直连"拉取（默认 true）。
   # 关闭后，节点池无节点 / 无可用代理时将直接失败并记录错误，不再直连。
   pool_empty_fallback_direct: true
-  # 节点池代理类型白名单（当前 undici 仅支持 http(s) 上游，可预留 socks5 扩展）
+  # 节点池代理类型白名单（支持 http / https / socks4 / socks5 / ss / trojan / vless；
+  # socks/ss/trojan/vless 通过本地协议桥转成 http 上游，vmess/ws/QUIC 暂不支持自动中转）
   proxy_pool_types:
     - "http"
+    - "socks5"
+    - "socks4"
+    - "ss"
+    - "trojan"
+    - "vless"
+  # 本地协议桥（把 socks/ss/trojan/vless 节点转成 http 上游）复用 TTL（秒），默认 300
+  proxy_bridge_ttl_seconds: 300
   # 抓取自定义请求头（JSON 对象），如 {"Authorization":"Bearer xxx","Cookie":"a=1"}
   # 可被请求参数 ?headers=<JSON> 临时覆盖；支持多种客户端订阅源鉴权
   headers: {}
@@ -259,6 +267,10 @@ grab:
   max_links: 20
   # 判定"订阅链接"的路径特征关键词（命中即尝试递归抓取）
   link_keywords: ["sub", "subscribe", "client", "api", "token", "node", "v2ray", "clash", "config"]
+  # 自动采集：间隔（分钟），0=关闭；开启后定时抓取全部"启用且参与采集"的来源
+  auto_interval_minutes: 0
+  # 自动采集后是否测速
+  auto_probe: false
 
 fetch_log:
   # 抓取日志最大保留条数（内存环形缓冲，超出自动丢弃最旧）

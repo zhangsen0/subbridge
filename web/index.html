@@ -42,6 +42,7 @@
     <!-- 侧边导航 -->
     <nav class="side" id="nav">
       <div class="nav-item on" data-tab="grab"><span class="ico">📊</span>驾驶舱</div>
+      <div class="nav-item admin-only hidden" data-tab="sources" data-mode="advanced"><span class="ico">📡</span>源管理</div>
       <div class="nav-item" data-tab="pool"><span class="ico">🗄️</span>节点库</div>
       <div class="nav-item admin-only hidden" data-tab="logs" data-mode="advanced"><span class="ico">📜</span>事件日志</div>
       <div class="nav-item admin-only hidden" data-tab="localnode" data-mode="advanced"><span class="ico">🖥️</span>本地节点</div>
@@ -98,22 +99,22 @@
           <p class="hint">把这条链接填进 Clash / sing-box / v2rayN 即可拉取节点池合并后的订阅。转换格式加 <code>&amp;target=clash|singbox|links|v2ray</code>；未登录或令牌为空时不可用。</p>
         </div>
 
-        <!-- 抓取输入区 -->
-        <div class="card grab-box">
-          <h3>抓取来源 <span class="tag ok">自动识别</span></h3>
-          <textarea id="grab-input" rows="3" spellcheck="false"
-            placeholder="粘贴订阅链接、网页地址或节点文本，多个用逗号或换行分隔&#10;例：https://example.com/sub?token=xxx 或 https://www.vpngate.net/cn/ 或 ss://..."></textarea>
-          <p class="hint">
-            ✅ 自动识别：订阅链接（ss / ssr / vmess / vless / trojan / hysteria / hysteria2 / tuic，或 Clash / sing-box / v2ray 订阅）·
-            网页（自动发现页面内订阅链接并递归抓取）· 直接粘贴节点文本 · 站点（vpngate 等）。
-            抓取结果自动补充 / 更新进节点池，不会自动删除。支持多订阅链接（逗号/换行分隔）。
-            抓取优先本机直连，失败自动回退节点池可用代理中转；需鉴权的订阅源可在「全站参数 → 抓取」配置自定义请求头。
-          </p>
-          <div class="actions">
-            <button type="button" class="btn primary" id="btn-grab">抓取并入库</button>
-            <button type="button" class="btn" id="btn-speedtest">抓取并测速</button>
-            <button type="button" class="btn ghost" id="btn-grab-example">填入示例</button>
+        <!-- 自动采集卡（驾驶舱焦点：源健康 + 一键采集） -->
+        <div class="card auto-grab-card">
+          <div class="auto-grab-head">
+            <h3>自动采集 <span class="tag" id="auto-grab-tag">未开启</span></h3>
+            <div class="actions">
+              <button type="button" class="btn primary small admin-only hidden" id="btn-auto-run">⚡ 立即采集</button>
+              <a href="#" class="btn ghost small admin-only hidden" id="btn-goto-sources">管理来源 →</a>
+            </div>
           </div>
+          <div class="auto-grab-grid">
+            <div class="ag-cell"><div class="kpi-label">采集源数量</div><div class="kpi-value" id="ag-sources">-</div></div>
+            <div class="ag-cell"><div class="kpi-label">上次采集</div><div class="kpi-value small" id="ag-last">-</div></div>
+            <div class="ag-cell"><div class="kpi-label">成功 / 失败</div><div class="kpi-value" id="ag-okfail">-</div></div>
+            <div class="ag-cell"><div class="kpi-label">本次新增节点</div><div class="kpi-value" id="ag-nodes">-</div></div>
+          </div>
+          <p class="hint">开启定时采集后，系统会按设定间隔自动抓取「源管理」中启用的来源并入库（可在全站参数 → 抓取 设置间隔与是否测速）。</p>
         </div>
 
         <!-- 抓取结果 -->
@@ -171,10 +172,53 @@
       </section>
 
       <!-- ============ 节点库 ============ -->
-      <section id="panel-pool" class="panel">
+      <!-- ============ 源管理（表格化增删改查 + 批量抓取） ============ -->
+      <section id="panel-sources" class="panel">
         <div class="card">
+          <div class="auto-grab-head">
+            <h3>抓取来源 <span class="tag ok">表格管理 · 增删改查</span></h3>
+            <div class="actions">
+              <button type="button" class="btn primary small" id="btn-src-grab-all">抓取全部</button>
+              <button type="button" class="btn small" id="btn-src-grab-probe">抓取并测速</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th style="width:56px">启用</th>
+                  <th>来源链接（备注）</th>
+                  <th style="width:70px">采集</th>
+                  <th style="width:130px">上次抓取</th>
+                  <th style="width:70px">节点数</th>
+                  <th style="width:180px">操作</th>
+                </tr>
+              </thead>
+              <tbody id="sources-tbody"></tbody>
+            </table>
+          </div>
+          <div class="add-source-row">
+            <input id="src-new-url" placeholder="https:// 订阅链接 / 网页地址 / 节点文本（支持 {Y_m_d} 日期变量与 |links / |ss 后缀）" style="flex:1;min-width:220px">
+            <input id="src-new-note" placeholder="备注（可选）" style="width:140px">
+            <button type="button" class="btn primary" id="btn-src-add">＋ 添加</button>
+          </div>
+          <p class="hint">启用=参与抓取与订阅输出；采集=参与自动定时采集。抓取结果自动补充/更新进节点池，不会自动删除。</p>
+        </div>
+        <div id="src-result" class="hidden">
+          <div class="card">
+            <div class="result-head">
+              <h3>本次抓取结果</h3>
+              <span id="src-result-meta" class="meta"></span>
+            </div>
+            <div id="src-result-body"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-pool" class="panel">
+        <div class="card collapsible">
           <div class="result-head">
-            <h3>节点库 <span class="tag">累积 · 不自动删除</span></h3>
+            <h3>节点库 <span class="tag">累积 · 不自动删除</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
               <input id="pool-search" class="search-input" type="search" placeholder="搜索名称 / 服务器 / 来源">
               <select id="pool-type">
@@ -194,20 +238,25 @@
             </div>
           </div>
           <div class="card add-node-panel admin-only hidden" id="pool-add-panel" data-mode="advanced" style="margin-top:12px;display:none">
-            <h4>手工添加节点</h4>
+            <div class="result-head">
+              <h4>手工添加节点</h4>
+            </div>
             <p class="hint">方式一：粘贴节点链接（ss:// ssr:// vmess:// vless:// trojan:// hysteria:// hysteria2:// tuic://，每行一个，自动识别协议）</p>
-            <textarea id="add-node-links" rows="4" spellcheck="false" placeholder="vless://...\ntrojan://..."></textarea>
+            <textarea id="add-node-links" rows="4" spellcheck="false" placeholder="vless://...
+trojan://..."></textarea>
             <p class="hint">方式二：手动填写字段（留空则只用方式一）</p>
             <div class="add-node-grid">
-              <input id="add-node-name" placeholder="名称（留空自动生成）" data-kind="text">
-              <select id="add-node-type"><option value="vless">vless</option><option value="vmess">vmess</option><option value="ss">ss</option><option value="ssr">ssr</option><option value="trojan">trojan</option><option value="hysteria2">hysteria2</option><option value="tuic">tuic</option></select>
-              <input id="add-node-server" placeholder="服务器地址 *">
-              <input id="add-node-port" placeholder="端口 *" type="number">
-              <input id="add-node-secret" placeholder="uuid / 密码（按协议）">
-              <input id="add-node-sni" placeholder="SNI / 回源域名（tls 时）">
-              <input id="add-node-wspath" placeholder="ws 路径（如 /）">
-              <input id="add-node-wshost" placeholder="ws Host 头">
-              <label class="toggle-line"><input type="checkbox" id="add-node-tls" checked> TLS</label>
+              <div class="field"><label for="add-node-name">名称</label><input id="add-node-name" placeholder="留空自动生成"></div>
+              <div class="field"><label for="add-node-type">协议类型</label>
+                <select id="add-node-type"><option value="vless">vless</option><option value="vmess">vmess</option><option value="ss">ss</option><option value="ssr">ssr</option><option value="trojan">trojan</option><option value="hysteria2">hysteria2</option><option value="tuic">tuic</option></select>
+              </div>
+              <div class="field"><label for="add-node-server">服务器地址 <em>*</em></label><input id="add-node-server" placeholder="如 1.2.3.4 或 node.example.com"></div>
+              <div class="field"><label for="add-node-port">端口 <em>*</em></label><input id="add-node-port" placeholder="如 443" type="number"></div>
+              <div class="field"><label for="add-node-secret">UUID / 密码（按协议）</label><input id="add-node-secret" placeholder="vless/vmess 填 UUID，ss/trojan 填密码"></div>
+              <div class="field"><label for="add-node-sni">SNI / 回源域名</label><input id="add-node-sni" placeholder="TLS 时填写，如 example.com"></div>
+              <div class="field"><label for="add-node-wspath">WS 路径</label><input id="add-node-wspath" placeholder="如 /"></div>
+              <div class="field"><label for="add-node-wshost">WS Host 头</label><input id="add-node-wshost" placeholder="留空不填"></div>
+              <div class="field toggle-field"><label>TLS 加密</label><label class="switch"><input type="checkbox" id="add-node-tls" checked><i></i></label></div>
             </div>
             <div class="actions">
               <button type="button" class="btn primary" id="btn-add-node-submit">加入节点池</button>
@@ -235,9 +284,9 @@
         </div>
 
         <!-- 自定义规则（高级+） -->
-        <div class="card" data-mode="advanced" id="rules-card">
+        <div class="card collapsible" data-mode="advanced" id="rules-card">
           <div class="result-head">
-            <h3>自定义规则 · 从节点池取节点 <span class="tag">高级</span></h3>
+            <h3>自定义规则 · 从节点池取节点 <span class="tag">高级</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
               <button type="button" class="btn small" id="btn-rules-gen">生成订阅链接</button>
               <button type="button" class="btn ghost small" id="btn-rules-copy">复制链接</button>
@@ -324,9 +373,9 @@
 
       <!-- ============ 事件日志（仅管理员） ============ -->
       <section id="panel-logs" class="panel">
-        <div class="card">
+        <div class="card collapsible">
           <div class="result-head">
-            <h3>事件日志 <span class="tag">全站可检测数据均有记录</span></h3>
+            <h3>事件日志 <span class="tag">全站可检测数据均有记录</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
               <select id="log-type">
                 <option value="">全部类型</option>
@@ -362,20 +411,21 @@
               <tbody id="log-body"></tbody>
             </table>
           </div>
-          <p class="hint">记录抓取（含网页递归子链接）、测速、节点池变更、配置变更、系统操作；超容量自动丢弃最旧记录。</p>
+          <div class="pager" id="log-pager"></div>
+          <p class="hint">记录抓取（含网页递归子链接）、测速、节点池变更、配置变更、系统操作；超容量自动丢弃最旧记录。分页每页 100 条。</p>
         </div>
       </section>
 
       <!-- ============ 本地节点（仅管理员） ============ -->
       <section id="panel-localnode" class="panel">
-        <div class="ln-status card">
-          <h3>节点运行状态</h3>
+        <div class="ln-status card collapsible">
+          <h3>节点运行状态 <span class="fold-ico">▼</span></h3>
           <div id="ln-status-body" class="ln-status-grid">加载中...</div>
           <div id="ln-copy-block" class="ln-copy-block" style="display:none"></div>
         </div>
         <div class="config-grid">
-          <div class="card">
-            <h3>本地节点配置</h3>
+          <div class="card collapsible">
+            <h3>本地节点配置 <span class="fold-ico">▼</span></h3>
             <div class="ln-fields" id="ln-fields"></div>
             <div class="actions">
               <button type="button" class="btn primary" id="btn-ln-save">保存并生效</button>
@@ -385,7 +435,16 @@
 
           </div>
           <div class="card">
-            <h3>Cloudflare Tunnel</h3>
+            <h3>Cloudflare Tunnel <span class="tag">Web 页面 / API 入口</span></h3>
+            <p class="hint">
+              <b>三种用法（按需选一种）：</b><br>
+              ① <b>系统服务方式（推荐，已在服务器装好）</b>：在服务器执行 <code>cloudflared service install 令牌</code> 装成系统服务，隧道自动连上 CF；
+              域名 → 本地服务的映射在 CF 面板「Zero Trust → Tunnels → 你的隧道 → Public Hostname」配置（Service 选 <b>HTTP</b>，URL 填 <code>localhost:8080</code>）。
+              此时<b>下方「启用 CF 隧道」保持关闭</b>即可，避免两套隧道同时运行。<br>
+              ② <b>远程管理令牌（应用内启动）</b>：把 CF 面板生成的 JWT 令牌（eyJhIjoi...）填入「远程管理隧道令牌」，应用自动连同一隧道；映射仍在 CF 面板配置。<br>
+              ③ <b>命名隧道</b>：已有 cloudflared tunnel create 的隧道时，填「命名隧道域名 + UUID + 凭据文件路径」，应用内自启隧道（适合程序化部署，不依赖系统服务）。<br>
+              <b>注意</b>：隧道只转发 HTTP(S) 请求，本机代理节点（CONNECT）会被 CF 边缘拦截；代理节点请用服务器直连端口（SOCKS5/HTTP）。
+            </p>
             <div class="ln-fields" id="ln-cf-fields"></div>
             <div class="actions">
               <button type="button" class="btn primary" id="btn-ln-restart">重启本地节点与隧道</button>
@@ -397,9 +456,9 @@
 
       <!-- ============ 全站参数（仅管理员） ============ -->
       <section id="panel-config" class="panel">
-        <div class="card">
+        <div class="card collapsible">
           <div class="result-head">
-            <h3>全站参数表 <span class="tag">参数全配置化 · 前台可改</span></h3>
+            <h3>全站参数表 <span class="tag">参数全配置化 · 前台可改</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
               <input id="config-search" class="search-input" type="search" placeholder="搜索参数名 / 说明（如 抓取超时 / port / rules）">
               <button type="button" class="btn ghost small" id="btn-reload-config">重新加载</button>
@@ -425,8 +484,8 @@
           <p class="hint">直接编辑完整 YAML（含注释丢失风险，请谨慎）。保存后立即生效并持久化。</p>
         </div>
 
-        <div class="card">
-          <h3>模板管理</h3>
+        <div class="card collapsible">
+          <h3>模板管理 <span class="fold-ico">▼</span></h3>
           <div class="tpl-bar">
             <select id="template-select"></select>
             <button type="button" class="btn ghost small" id="btn-tpl-load">加载</button>

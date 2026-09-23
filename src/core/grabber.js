@@ -15,6 +15,7 @@
 
 const { parseSubscription } = require('../parsers');
 const { findAdapter } = require('../grabbers');
+const { parseSourceOptions, PROTOCOL_NAMES } = require('./sourceOptions');
 
 /** 判断文本是否为 HTML 网页 */
 function isHtml(text) {
@@ -86,9 +87,12 @@ async function fetchSource(source, opts) {
   const history = opts.history || [];
   const depth = opts.depth || 0;
 
+  // 来源预处理：展开日期变量（{Y_m_d} 等）+ 解析 |后缀（links=按行拆源，协议名=结果过滤）
+  const { url: srcUrl, suffix } = parseSourceOptions(source);
+
   // 直接文本（非链接）：按订阅格式识别
-  if (!isHttpUrl(source)) {
-    const { nodes, format } = parseSubscription(source);
+  if (!isHttpUrl(srcUrl)) {
+    const { nodes, format } = parseSubscription(srcUrl);
     for (const n of nodes) n.source = '文本输入';
     history.push({ url: '', kind: 'text', format, nodes: nodes.length, error: '', durationMs: 0 });
     return { nodes, kind: 'text' };
@@ -98,39 +102,79 @@ async function fetchSource(source, opts) {
   const started = Date.now();
   let hostname = '';
   try {
-    hostname = new URL(source).hostname;
+    hostname = new URL(srcUrl).hostname;
   } catch {
     hostname = '';
   }
   const adapter = findAdapter(hostname);
 
+  // |links 模式：拉取内容后按行拆分为独立订阅链接，逐个递归抓取（不要求订阅特征关键词）
+  if (suffix === 'links') {
+    let linkText = '';
+    try {
+      const meta = await fetcher.fetchMeta(adapter && adapter.normalizeUrl ? adapter.normalizeUrl(srcUrl) : srcUrl);
+      linkText = meta.text || '';
+    } catch (err) {
+      history.push({ url: srcUrl, kind: 'links', error: err.message, durationMs: Date.now() - started });
+      throw err;
+    }
+    const lineUrls = [];
+    for (const line of String(linkText).split(/\r?\n/)) {
+      const u = line.trim();
+      if (isHttpUrl(u) && !seen.has(u)) lineUrls.push(u);
+    }
+    const nodes = [];
+    let discovered = 0;
+    for (const link of lineUrls.slice(0, maxLinks || lineUrls.length)) {
+      seen.add(link);
+      discovered += 1;
+      try {
+        const sub = await fetchSource(link, { fetcher, config: opts.config, seen, depth: depth + 1, history });
+        nodes.push(...sub.nodes);
+      } catch {
+        // 子链接失败不阻断主流程
+      }
+    }
+    history.push({
+      url: srcUrl, kind: 'links', format: 'links', nodes: nodes.length,
+      discoveredLinks: discovered, error: '', durationMs: Date.now() - started,
+    });
+    return { nodes, kind: 'links' };
+  }
+
   let meta;
   try {
-    meta = await fetcher.fetchMeta(adapter && adapter.normalizeUrl ? adapter.normalizeUrl(source) : source);
+    meta = await fetcher.fetchMeta(adapter && adapter.normalizeUrl ? adapter.normalizeUrl(srcUrl) : srcUrl);
   } catch (err) {
-    history.push({ url: source, kind: 'url', error: err.message, durationMs: Date.now() - started });
+    history.push({ url: srcUrl, kind: 'url', error: err.message, durationMs: Date.now() - started });
     throw err;
   }
   const { text, status, bytes, contentType } = meta;
   const base = {
-    url: source,
+    url: srcUrl,
     httpStatus: status,
     bytes,
     durationMs: Date.now() - started,
   };
 
+  // |协议名 后缀：抓取后按协议过滤（如 proxypool.link/ss/sub|ss 只保留 ss 节点）
+  const filterProtocol = PROTOCOL_NAMES.has(suffix) ? suffix : '';
+
   // 站点专用解析（如 vpngate）
   if (adapter) {
-    const { nodes, format } = adapter.parse(text);
-    for (const n of nodes) n.source = source;
-    history.push({ ...base, kind: 'site', format, nodes: nodes.length, error: '' });
+    const parsed = adapter.parse(text);
+    let nodes = parsed.nodes || [];
+    for (const n of nodes) n.source = srcUrl;
+    if (filterProtocol) nodes = nodes.filter((n) => n.type === filterProtocol);
+    history.push({ ...base, kind: 'site', format: parsed.format, nodes: nodes.length, error: '' });
     return { nodes, kind: 'site' };
   }
 
   // HTML 网页：提取内嵌节点 + 发现订阅链接递归
   if (isHtml(text)) {
-    const nodes = parseSubscription(text).nodes;
-    for (const n of nodes) n.source = source;
+    let nodes = parseSubscription(text).nodes;
+    if (filterProtocol) nodes = nodes.filter((n) => n.type === filterProtocol);
+    for (const n of nodes) n.source = srcUrl;
     let discovered = 0;
     const candidates = extractLinks(text).filter((u) => !seen.has(u) && looksLikeSubLink(u, keywords));
     if (depth < maxDepth) {
@@ -150,9 +194,11 @@ async function fetchSource(source, opts) {
   }
 
   // 订阅内容
-  const { nodes, format } = parseSubscription(text);
-  for (const n of nodes) n.source = source;
-  history.push({ ...base, kind: 'subscription', format, nodes: nodes.length, error: '' });
+  const parsed = parseSubscription(text);
+  let nodes = parsed.nodes || [];
+  if (filterProtocol) nodes = nodes.filter((n) => n.type === filterProtocol);
+  for (const n of nodes) n.source = srcUrl;
+  history.push({ ...base, kind: 'subscription', format: parsed.format, nodes: nodes.length, error: '' });
   return { nodes, kind: 'subscription' };
 }
 

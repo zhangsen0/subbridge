@@ -207,6 +207,16 @@ function initMode() {
   });
 }
 
+/* ---------- 卡片折叠（收起/展开） ---------- */
+function initCollapse() {
+  document.querySelectorAll('.card.collapsible').forEach((card) => {
+    const head = card.querySelector(':scope > .result-head, :scope > h3');
+    if (!head) return;
+    head.style.cursor = 'pointer';
+    head.addEventListener('click', () => card.classList.toggle('folded'));
+  });
+}
+
 /* ---------- Tab 切换（侧边导航） ---------- */
 document.querySelectorAll('.nav-item').forEach((tab) => {
   tab.addEventListener('click', () => {
@@ -216,6 +226,7 @@ document.querySelectorAll('.nav-item').forEach((tab) => {
     $('panel-' + tab.dataset.tab).classList.add('active');
     // 进入面板时按需加载
     if (tab.dataset.tab === 'pool') loadPool();
+    if (tab.dataset.tab === 'sources' && currentRole === 'admin') loadSources();
     if (tab.dataset.tab === 'logs' && currentRole === 'admin') loadLogs();
     if (tab.dataset.tab === 'localnode' && currentRole === 'admin') { loadConfig(); loadLocalNodeStatus(); }
     if (tab.dataset.tab === 'config' && currentRole === 'admin') loadConfig();
@@ -488,12 +499,6 @@ function renderGrabResults(nodes, meta, warnings) {
 }
 
 function initGrab() {
-  $('btn-grab').addEventListener('click', () => doGrab(false));
-  $('btn-speedtest').addEventListener('click', () => doGrab(true));
-  $('btn-grab-example').addEventListener('click', () => {
-    $('grab-input').value = GRAB_SAMPLE;
-    toast('已填入示例（vpngate 公开网页），点击「抓取并入库」即可体验');
-  });
   $('btn-copy-sub').addEventListener('click', async () => {
     const url = buildSubUrl();
     try { await navigator.clipboard.writeText(url); toast('订阅链接已复制'); }
@@ -510,6 +515,152 @@ function initGrab() {
     try { await navigator.clipboard.writeText(url); toast('带规则订阅链接已复制'); }
     catch (e) { toast('复制失败：' + e.message, true); }
   });
+}
+
+/* ---------- 源管理（表格增删改查 + 批量抓取 + 自动采集） ---------- */
+function initSources() {
+  $('btn-src-add').addEventListener('click', addSource);
+  $('btn-src-grab-all').addEventListener('click', () => grabSourcesAll(false));
+  $('btn-src-grab-probe').addEventListener('click', () => grabSourcesAll(true));
+  $('btn-auto-run').addEventListener('click', async () => {
+    try {
+      const d = await apiJson('/api/auto-grab', { method: 'POST' });
+      toast(d.summary ? `自动采集完成：源 ${d.summary.sources} 个 / 成功 ${d.summary.ok} / 失败 ${d.summary.fail}，新增节点 ${d.summary.added}` : (d.message || '已触发'));
+      loadSources(); loadAutoGrabStatus(); loadDashboard(); if (currentRole === 'admin') loadLogs(true);
+    } catch (err) { toast('采集失败：' + err.message, true); }
+  });
+  $('btn-goto-sources').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.nav-item').forEach((t) => t.classList.remove('on'));
+    document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
+    document.querySelector('.nav-item[data-tab="sources"]').classList.add('on');
+    $('panel-sources').classList.add('active');
+    loadSources();
+  });
+  $('src-new-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') addSource(); });
+  loadAutoGrabStatus();
+}
+
+async function addSource() {
+  const url = $('src-new-url').value.trim();
+  if (!url) { toast('请先粘贴来源链接', true); return; }
+  const note = $('src-new-note').value.trim();
+  try {
+    await apiJson('/api/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, note }) });
+    toast('来源已添加');
+    $('src-new-url').value = ''; $('src-new-note').value = '';
+    loadSources(); if (currentRole === 'admin') loadLogs(true);
+  } catch (err) { toast('添加失败：' + err.message, true); }
+}
+
+async function loadSources() {
+  try {
+    const d = await apiJson('/api/sources');
+    renderSources(d.sources || []);
+  } catch (err) {
+    document.querySelector('#sources-tbody').innerHTML =
+      '<tr><td colspan="6" class="empty">加载失败：' + escapeHtml(err.message) + '</td></tr>';
+  }
+}
+
+function renderSources(list) {
+  const tbody = $('sources-tbody');
+  if (!list.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">还没有来源，粘贴链接点「＋ 添加」开始抓取</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map((s) => {
+    const time = s.lastAt ? new Date(s.lastAt).toLocaleString() : '从未';
+    const status = s.lastStatus === 'ok'
+      ? '<span class="tag ok">成功</span>'
+      : s.lastStatus === 'fail' ? '<span class="tag err">失败</span>' : '<span class="tag">未抓</span>';
+    const errTip = s.lastError ? ' title="' + escapeHtml(s.lastError) + '"' : '';
+    return '<tr>' +
+      '<td><label class="switch"><input type="checkbox" data-act="toggle" data-id="' + escapeHtml(s.id) + '"' + (s.enabled !== false ? ' checked' : '') + '><i></i></label></td>' +
+      '<td><div class="src-url" title="' + escapeHtml(s.url) + '">' + escapeHtml(s.url) + '</div>' +
+        (s.note ? '<div class="src-note">' + escapeHtml(s.note) + '</div>' : '') + '</td>' +
+      '<td><label class="switch"><input type="checkbox" data-act="auto" data-id="' + escapeHtml(s.id) + '"' + (s.auto !== false ? ' checked' : '') + '><i></i></label></td>' +
+      '<td' + errTip + '>' + status + '<div class="src-note">' + time + '</div></td>' +
+      '<td>' + (s.lastNodes || 0) + '</td>' +
+      '<td class="row-actions">' +
+        '<button type="button" class="btn mini" data-act="grab" data-id="' + escapeHtml(s.id) + '">抓取</button>' +
+        '<button type="button" class="btn mini" data-act="edit" data-id="' + escapeHtml(s.id) + '">编辑</button>' +
+        '<button type="button" class="btn mini danger" data-act="del" data-id="' + escapeHtml(s.id) + '">删除</button>' +
+      '</td></tr>';
+  }).join('');
+  tbody.querySelectorAll('input[data-act]').forEach((el) => {
+    el.addEventListener('change', async () => {
+      const act = el.dataset.act;
+      const id = el.dataset.id;
+      const patch = act === 'toggle' ? { enabled: el.checked } : { auto: el.checked };
+      try {
+        await apiJson('/api/sources/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+        toast('已更新');
+        loadSources(); if (currentRole === 'admin') loadLogs(true);
+      } catch (err) { toast('更新失败：' + err.message, true); }
+    });
+  });
+  tbody.querySelectorAll('button[data-act]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const act = el.dataset.act;
+      const id = el.dataset.id;
+      if (act === 'del') {
+        if (!window.confirm('确定删除该来源？节点池中已抓取的节点不会删除。')) return;
+        try {
+          await apiJson('/api/sources/' + id, { method: 'DELETE' });
+          toast('已删除'); loadSources(); if (currentRole === 'admin') loadLogs(true);
+        } catch (err) { toast('删除失败：' + err.message, true); }
+      } else if (act === 'grab') {
+        grabSourcesAll(false, [id]);
+      } else if (act === 'edit') {
+        const url = window.prompt('编辑来源链接：', el.closest('tr').querySelector('.src-url').title);
+        if (url === null) return;
+        try {
+          await apiJson('/api/sources/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+          toast('已更新'); loadSources();
+        } catch (err) { toast('更新失败：' + err.message, true); }
+      }
+    });
+  });
+}
+
+async function grabSourcesAll(probe, ids) {
+  const btn = probe ? $('btn-src-grab-probe') : $('btn-src-grab-all');
+  const old = btn.textContent;
+  btn.textContent = probe ? '抓取测速中...' : '抓取中...';
+  btn.disabled = true;
+  try {
+    const d = await apiJson('/api/sources/grab', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ probe, ids: ids || undefined }) });
+    const meta = `共 ${d.total} 个源 · 成功 ${d.okCount} · 失败 ${d.total - d.okCount}`;
+    const rows = (d.results || []).map((r) =>
+      '<tr><td class="' + (r.ok ? '' : 'err') + '">' + escapeHtml(r.url) + '</td><td>' + (r.ok ? '✅ 解析 ' + (r.parsed || 0) + ' · 新增 ' + (r.added || 0) + ' / 更新 ' + (r.updated || 0) : '❌ ' + escapeHtml(r.error || '失败')) + '</td></tr>').join('');
+    const box = $('src-result');
+    box.classList.remove('hidden');
+    $('src-result-meta').textContent = meta;
+    $('src-result-body').innerHTML = '<div class="table-wrap"><table class="tbl"><tbody>' + rows + '</tbody></table></div>';
+    toast(meta);
+    loadSources(); loadAutoGrabStatus(); loadPool(); loadDashboard(); if (currentRole === 'admin') loadLogs(true);
+  } catch (err) {
+    toast('抓取失败：' + err.message, true);
+  } finally {
+    btn.textContent = old;
+    btn.disabled = false;
+  }
+}
+
+async function loadAutoGrabStatus() {
+  try {
+    const d = await apiJson('/api/auto-grab');
+    const tag = $('auto-grab-tag');
+    tag.textContent = d.enabled ? `已开启 · 每 ${d.interval_minutes} 分钟` : '未开启';
+    tag.className = 'tag' + (d.enabled ? ' ok' : '');
+    $('ag-sources').textContent = d.enabledSources ?? '-';
+    $('ag-last').textContent = d.lastRunAt ? new Date(d.lastRunAt).toLocaleString() : '从未';
+    $('ag-okfail').textContent = d.lastRunSummary ? (d.lastRunSummary.ok + ' / ' + d.lastRunSummary.fail) : '-';
+    $('ag-nodes').textContent = d.lastRunSummary ? ((d.lastRunSummary.added || 0) + (d.lastRunSummary.updated || 0)) : '-';
+  } catch (err) {
+    /* 自动采集卡展示失败不阻断 */
+  }
 }
 
 /* ---------- 专家调试 ---------- */
@@ -926,8 +1077,9 @@ function initRules() {
 const LOG_TYPES = { fetch: '抓取', probe: '测速', pool: '节点池', config: '配置', system: '系统' };
 function typeName(t) { return LOG_TYPES[t] || t || '其他'; }
 
+let logPage = 1;
 async function loadLogs(silent) {
-  const qs = ['limit=300'];
+  const qs = ['page=' + logPage, 'pageSize=100'];
   const type = $('log-type').value;
   const ok = $('log-ok').value;
   if (type) qs.push('type=' + type);
@@ -935,6 +1087,7 @@ async function loadLogs(silent) {
   try {
     const d = await apiJson('/api/logs?' + qs.join('&'));
     renderLogs(d.logs || []);
+    renderLogPager(d);
   } catch (err) {
     if (currentRole === 'guest') { showGuestHints(); return; }
     if (!silent) toast('加载日志失败：' + err.message, true);
@@ -942,6 +1095,38 @@ async function loadLogs(silent) {
   }
 }
 
+function renderLogPager(d) {
+  const box = $('log-pager');
+  if (!box) return;
+  const page = d.page || 1;
+  const pages = d.pages || 1;
+  const total = d.total || 0;
+  if (pages <= 1) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<span class="pg-info">共 ' + total + ' 条 · 第 ' + page + ' / ' + pages + ' 页</span>' +
+    '<button type="button" class="btn mini" data-pg="prev"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>' +
+    '<span class="pg-nums">' + pagerNums(page, pages) + '</span>' +
+    '<button type="button" class="btn mini" data-pg="next"' + (page >= pages ? ' disabled' : '') + '>下一页</button>';
+  box.querySelectorAll('button[data-pg]').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (b.dataset.pg === 'prev' && page > 1) logPage = page - 1;
+      if (b.dataset.pg === 'next' && page < pages) logPage = page + 1;
+      loadLogs(true);
+    });
+  });
+  box.querySelectorAll('button[data-num]').forEach((b) => {
+    b.addEventListener('click', () => { logPage = Number(b.dataset.num); loadLogs(true); });
+  });
+}
+function pagerNums(page, pages) {
+  const from = Math.max(1, page - 2);
+  const to = Math.min(pages, page + 2);
+  const out = [];
+  for (let i = from; i <= to; i++) {
+    out.push('<button type="button" class="btn mini pg-num' + (i === page ? ' on' : '') + '" data-num="' + i + '">' + i + '</button>');
+  }
+  return out.join('');
+}
 function renderLogs(logs) {
   const body = $('log-body');
   if (!logs.length) {
@@ -1008,14 +1193,14 @@ const LOCALNODE_FIELDS = [
 ];
 
 const CF_TUNNEL_FIELDS = [
-  { key: 'cf_tunnel.enabled', label: '启用 CF 隧道', type: 'bool', hint: '本机无公网 IP 时把节点映射为公网 HTTPS 地址。' },
-  { key: 'cf_tunnel.binary', label: 'cloudflared 路径/命令', type: 'text', hint: '留空用 PATH 中的 cloudflared；容器内可用绝对路径。' },
-  { key: 'cf_tunnel.token', label: '远程管理隧道令牌', type: 'text', hint: '模式一：填了即用远程隧道，hostname 在 CF 后台配置。' },
-  { key: 'cf_tunnel.hostname', label: '命名隧道域名', type: 'text', hint: '模式二：如 node.example.com。' },
-  { key: 'cf_tunnel.tunnel_uuid', label: '命名隧道 UUID', type: 'text', hint: '模式二：cloudflared tunnel create 生成的 ID。' },
-  { key: 'cf_tunnel.credentials_file', label: '凭据文件路径', type: 'text', hint: '模式二：cloudflared tunnel login 生成的 json 凭据。' },
-  { key: 'cf_tunnel.ingress_service', label: '入口服务（留空自动）', type: 'text', hint: '如 http://localhost:1082。' },
-  { key: 'cf_tunnel.public_hostname_override', label: '注入用公网主机覆盖', type: 'text', hint: '填了则以它作为订阅节点地址（如自定义域名）。' },
+  { key: 'cf_tunnel.enabled', label: '启用 CF 隧道', type: 'bool', hint: '本机无公网 IP / 服务器被机房限制 80、8080 等端口时，用 Cloudflare 隧道把 Web 页面与 API 映射为公网 HTTPS 地址（https://你的域名）。注意：隧道只转发 HTTP(S) 请求，代理节点（CONNECT 隧道）会被 CF 边缘拦截，代理节点仍用服务器直连端口。' },
+  { key: 'cf_tunnel.binary', label: 'cloudflared 路径/命令', type: 'text', hint: '填写 cloudflared 可执行文件的位置。留空自动使用系统 PATH 里的 cloudflared（Linux: /usr/local/bin/cloudflared，Windows: cloudflared.exe）。容器内常用绝对路径。' },
+  { key: 'cf_tunnel.token', label: '远程管理隧道令牌', type: 'text', hint: '模式一（推荐）：在 CF 面板「Zero Trust → Networks → Tunnels → 创建隧道」时生成的一长串 JWT 令牌（eyJhIjoi...开头）。填到这里后，应用会用它连到你在 CF 后台已建好的隧道；hostname 映射（域名 → 本地服务）也在 CF 面板配置。一个隧道可同时被系统服务与多个实例连接。' },
+  { key: 'cf_tunnel.hostname', label: '命名隧道域名', type: 'text', hint: '模式二：使用「命名隧道」时填公网域名，如 node.example.com（需先在你的 CF 域名下创建 DNS CNAME 指向 隧道ID.cfargotunnel.com，或在配置文件中声明 ingress）。' },
+  { key: 'cf_tunnel.tunnel_uuid', label: '命名隧道 UUID', type: 'text', hint: '模式二：运行 cloudflared tunnel create 名称 时生成的隧道 ID（形如 6ff40c9e-...-xxxx）。在 CF 面板隧道详情页也能看到。' },
+  { key: 'cf_tunnel.credentials_file', label: '凭据文件路径', type: 'text', hint: '模式二：cloudflared tunnel login 生成的 JSON 凭据文件绝对路径（Linux 默认 ~/.cloudflared/隧道UUID.json；Windows 默认 %USERPROFILE%/.cloudflared/）。' },
+  { key: 'cf_tunnel.ingress_service', label: '入口服务（留空自动）', type: 'text', hint: '隧道转发到本机的哪个服务。留空自动取本机 Web 端口（端口复用模式）；手动填如 http://localhost:8080。注意：与 CF 面板配置的 Service 要一致（本系统是 HTTP，不是 HTTPS）。' },
+  { key: 'cf_tunnel.public_hostname_override', label: '注入用公网主机覆盖', type: 'text', hint: '填了则以它作为订阅节点地址（如自定义域名），不填自动取隧道域名。仅供高级场景使用（默认留空）。' },
 ];
 
 async function loadLocalNodeStatus() {
@@ -1167,8 +1352,9 @@ const CONFIG_FIELDS = [
   { group: '抓取', key: 'fetcher.max_body_bytes', label: '内容大小上限（字节）', type: 'number', hint: '防止大文件拖垮内存。' },
   { group: '抓取', key: 'fetcher.max_concurrency', label: '并发抓取数', type: 'number', hint: '' },
   { group: '抓取', key: 'fetcher.upstream_proxy', label: '上游转发代理（http/https）', type: 'text', hint: '显式配置时优先于"节点池挑选"与本机自中继，如 http://user:pass@host:8080。' },
-  { group: '抓取', key: 'fetcher.proxy_from_pool', label: '代理从节点池挑选', type: 'bool', hint: '未配置上游代理时，自动挑选池中可用 http 节点作为抓取代理。' },
-  { group: '抓取', key: 'fetcher.proxy_pool_types', label: '池代理类型白名单', type: 'list', hint: '每行一个类型，默认 http。' },
+  { group: '抓取', key: 'fetcher.proxy_from_pool', label: '代理从节点池挑选', type: 'bool', hint: '未配置上游代理时，自动从节点池挑选可用节点作为抓取代理（支持多种协议）。' },
+  { group: '抓取', key: 'fetcher.proxy_pool_types', label: '池代理类型白名单', type: 'list', hint: '每行一个类型，支持 http / https / socks4 / socks5 / ss / trojan / vless（后四种自动经本地协议桥转为 http 上游）；vmess、ws 传输、hysteria2 / tuic 暂不支持自动中转。' },
+  { group: '抓取', key: 'fetcher.proxy_bridge_ttl_seconds', label: '协议桥复用 TTL（秒）', type: 'number', hint: '把 socks/ss/trojan/vless 节点转成本地 http 上游后，桥端口复用的存活秒数，默认 300。' },
   { group: '抓取', key: 'fetcher.headers', label: '抓取自定义请求头（JSON）', type: 'json', hint: '如 {"Authorization":"Bearer xxx","Cookie":"a=1"}；支持鉴权订阅源；可被 ?headers= 参数覆盖。' },
   { group: '抓取', key: 'fetcher.relay_through_localnode', label: '抓取走本机节点自中继', type: 'bool', hint: '未配上游代理且池无可用代理时，经本机 HTTP 节点中转采集（顺带验证本机节点）。' },
   { group: '抓取', key: 'fetcher.block_private', label: 'SSRF 防护（拦截内网）', type: 'bool', hint: '拦截抓取内网地址，防止 SSRF；内网测试时关闭。' },
@@ -1474,10 +1660,12 @@ function initGuide() {
 
 async function init() {
   initTheme();
+  initCollapse();
   initGuide();
   initMode();
   initLogin();
   initGrab();
+  initSources();
   initDebug();
   initPool();
   initRules();
@@ -1495,8 +1683,8 @@ async function init() {
 document.addEventListener('DOMContentLoaded', () => {
   // 逐个初始化并隔离异常：单个模块出错不阻断其余功能（含登录态识别）
   const steps = [
-    ['主题', initTheme], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab],
-    ['调试', initDebug], ['节点库', initPool], ['规则', initRules], ['质量', initQuality],
+    ['主题', initTheme], ['折叠', initCollapse], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab],
+    ['源管理', initSources], ['调试', initDebug], ['节点库', initPool], ['规则', initRules], ['质量', initQuality],
     ['清理', initCleanup], ['日志', initLogs], ['本地节点', initLocalNode], ['配置', initConfig],
     ['模板', initTemplates], ['备份', initBackup],
   ];

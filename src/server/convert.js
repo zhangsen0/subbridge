@@ -87,11 +87,13 @@ async function effectiveFetcherConfig(config, ctx) {
       const { pickProxyFromPool } = require('../core/poolProxy');
       const types = Array.isArray(fetcher.proxy_pool_types) && fetcher.proxy_pool_types.length
         ? fetcher.proxy_pool_types
-        : ['http'];
-      const picked = await pickProxyFromPool(ctx.nodePool, { types });
-      if (picked) {
+        : ['http', 'socks5', 'socks4', 'ss', 'trojan', 'vless'];
+      const ttlMs = Number(fetcher.proxy_bridge_ttl_seconds || 300) * 1000;
+      const picked = await pickProxyFromPool(ctx.nodePool, { types, ttlMs });
+      if (picked && picked.url) {
         result.fallback_proxy = picked.url;
         result._pool_proxy = picked.node;
+        result._pool_proxy_skipped = picked.skipped || [];
       }
     } catch {
       /* 池选代理失败时继续尝试其他方式 */

@@ -32,6 +32,9 @@ const { registerDashboardApi } = require('./dashboardApi');
 const { registerLoginApi } = require('./loginApi');
 const { registerPresetsApi } = require('./presetsApi');
 const { registerScenarioApi } = require('./scenarioApi');
+const { registerSourceApi } = require('./sourceApi');
+const { SourceStore } = require('../core/sourceStore');
+const { AutoGrab } = require('../core/autoGrab');
 const { FetchLog } = require('./fetchLog');
 const { handleSubscribe } = require('./subscribe');
 const { resolveRole, buildSubscriptionUrl } = require('./auth');
@@ -76,6 +79,10 @@ function createServer(config) {
 
   // 抓取日志（内存环形缓冲，容量可配置）与节点池（持久化，自动补充/更新、不自动删除）
   ctx.fetchLog = new FetchLog((config.fetch_log || {}).capacity);
+
+  // 抓取来源管理（表格化增删改查 + 自动采集元数据）
+  // 保存时同步写回配置 extra_sources（updateConfig 原地更新，保持引用稳定）
+  ctx.sources = new SourceStore(ctx.store, config, (patch) => updateConfig(patch));
   ctx.nodePool = new NodePool(ctx.store);
 
   // 本机节点默认加入节点池：启动后（以及重启本地节点后）自动同步
@@ -128,6 +135,26 @@ function createServer(config) {
     mountSharedProxy();
     await syncLocalNodeToPool();
   };
+
+  // 抓取单个来源并回写状态（手动 / 自动采集共用）
+  const { buildConverted, buildOptions } = require('./convert');
+  ctx.grabOne = async (item, { probe = false } = {}) => {
+    const opts = buildOptions({ probe: probe ? '1' : '0' }, ctx.config);
+    try {
+      const result = await buildConverted([item.url], opts, ctx);
+      const added = result.poolStats ? result.poolStats.added : 0;
+      const updated = result.poolStats ? result.poolStats.updated : 0;
+      await ctx.sources.recordResult(item.id, { ok: true, nodes: result.nodes.length });
+      return { id: item.id, url: item.url, ok: true, parsed: result.nodes.length, added, updated };
+    } catch (err) {
+      await ctx.sources.recordResult(item.id, { ok: false, nodes: 0, error: err.message });
+      return { id: item.id, url: item.url, ok: false, error: err.message };
+    }
+  };
+
+  // 自动采集调度（间隔可配置；启动即注册，到点自动抓取）
+  ctx.autoGrab = new AutoGrab(ctx);
+  ctx.autoGrab.start();
 
   // 优雅退出时关闭本地代理与隧道
   app.addHook('onClose', async () => {
@@ -231,11 +258,19 @@ function createServer(config) {
   registerGrabApi(app, ctx);
   registerDashboardApi(app, ctx);
 
+  // 抓取来源管理（表格化增删改查 + 自动采集）
+  registerSourceApi(app, ctx);
+
   // 事件日志（仅管理员）
   app.get('/api/logs', async (req) => {
     const q = req.query || {};
     const ok = q.ok === '1' ? true : q.ok === '0' ? false : undefined;
-    return { logs: ctx.fetchLog.list({ limit: q.limit, ok, type: q.type || undefined }) };
+    const arr = ctx.fetchLog.query({ ok, type: q.type || undefined });
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 100));
+    const total = arr.length;
+    const logs = arr.slice((page - 1) * pageSize, page * pageSize);
+    return { logs, total, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) };
   });
   app.post('/api/logs/clear', async () => {
     ctx.fetchLog.clear();

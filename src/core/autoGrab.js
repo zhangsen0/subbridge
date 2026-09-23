@@ -1,0 +1,107 @@
+'use strict';
+
+/**
+ * 自动采集调度：按配置间隔定时抓取全部启用来源（可配置，禁止写死）
+ *
+ *   grab.auto_interval_minutes  采集间隔（分钟），0=关闭
+ *   grab.auto_probe             采集后是否测速（true=抓取并测速）
+ *   grab.auto_max_concurrency   采集并发上限（当前按顺序执行，预留扩展）
+ *
+ * 状态通过 /api/auto-grab 暴露；每次运行结果记入事件日志并回写各源 lastStatus。
+ */
+
+const CHECK_INTERVAL_MS = 60 * 1000; // 每 60 秒检查一次是否到点
+
+class AutoGrab {
+  /**
+   * @param {object} ctx 运行上下文（config / sources / fetchLog / grabOne）
+   */
+  constructor(ctx) {
+    this.ctx = ctx;
+    this._timer = null;
+    this._running = false;
+    this._lastRunAt = '';
+    this._lastSummary = null;
+    this._nextAt = '';
+  }
+
+  /** 当前是否运行中 */
+  running() { return this._running; }
+  lastRunAt() { return this._lastRunAt; }
+  lastRunSummary() { return this._lastSummary; }
+  nextRunAt() { return this._nextAt; }
+
+  /** 计算下次运行时间（字符串），未开启返回空 */
+  _scheduleNext() {
+    const cfg = this.ctx.config;
+    const intervalMin = Math.max(0, Number(cfg.grab && cfg.grab.auto_interval_minutes) || 0);
+    if (!intervalMin) { this._nextAt = ''; return; }
+    const base = this._lastRunAt ? new Date(this._lastRunAt).getTime() : Date.now();
+    const next = base + intervalMin * 60 * 1000;
+    this._nextAt = new Date(next).toISOString();
+  }
+
+  /** 启动定时检查（幂等，可重复调用） */
+  start() {
+    if (this._timer) return;
+    this._timer = setInterval(() => { this._tick().catch(() => {}); }, CHECK_INTERVAL_MS);
+    this._tick().catch(() => {});
+    if (this._timer.unref) this._timer.unref();
+  }
+
+  /** 停止定时器 */
+  stop() {
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+  }
+
+  /** 周期检查：到点且未运行则触发 */
+  async _tick() {
+    const cfg = this.ctx.config;
+    const intervalMin = Math.max(0, Number(cfg.grab && cfg.grab.auto_interval_minutes) || 0);
+    if (!intervalMin || this._running) return;
+    if (this._lastRunAt && Date.now() - new Date(this._lastRunAt).getTime() < intervalMin * 60 * 1000) return;
+    await this.runNow();
+  }
+
+  /** 立即执行一次自动采集（手动触发也走这里） */
+  async runNow() {
+    if (this._running) return { skipped: true, message: '采集进行中，已跳过本次' };
+    this._running = true;
+    const cfg = this.ctx.config;
+    const probe = !!(cfg.grab && cfg.grab.auto_probe);
+    const items = this.ctx.sources.list().filter((s) => s.enabled !== false && s.auto !== false);
+    const started = Date.now();
+    const summary = { sources: items.length, ok: 0, fail: 0, parsed: 0, added: 0, updated: 0, startedAt: new Date().toISOString(), errors: [] };
+    try {
+      if (items.length) {
+        for (const item of items) {
+          try {
+            const result = await this.ctx.grabOne(item, { probe });
+            summary.parsed += result.parsed || 0;
+            summary.added += result.added || 0;
+            summary.updated += result.updated || 0;
+            if (result.ok) summary.ok += 1;
+            else { summary.fail += 1; summary.errors.push(result.error); }
+          } catch (err) {
+            summary.fail += 1;
+            summary.errors.push(String(err.message || err).slice(0, 120));
+          }
+        }
+      }
+      summary.durationMs = Date.now() - started;
+      summary.finishedAt = new Date().toISOString();
+      this._lastRunAt = summary.finishedAt;
+      this._lastSummary = summary;
+      this._scheduleNext();
+      this.ctx.fetchLog.record({
+        type: 'grab', kind: 'auto', url: `自动采集完成（源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail}）`,
+        nodes: summary.parsed, error: summary.fail ? summary.errors.slice(0, 2).join('；') : '',
+      });
+      return summary;
+    } finally {
+      this._running = false;
+    }
+  }
+}
+
+module.exports = { AutoGrab };
