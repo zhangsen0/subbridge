@@ -203,11 +203,9 @@ function createServer(config) {
   const noCache = (reply) => reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   app.get('/', async (req, reply) => {
     noCache(reply);
-    // 未登录（无有效令牌）只能看到登录页：未授权直接 302 到 /login
-    const { resolveRole } = require('./auth');
-    if (resolveRole(req, config) == null) {
-      return reply.redirect('/login');
-    }
+    // 主页页面公开返回，登录态由前端 identifyRole 识别：
+    //   已登录（localStorage 令牌）→ 正常展示；未登录 → 前端自动跳转 /login。
+    // 这样登录成功后 location.href='/' 不再被服务端 302 弹回登录页。
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'index.html')));
   });
 
