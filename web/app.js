@@ -217,7 +217,7 @@ document.querySelectorAll('.nav-item').forEach((tab) => {
     // 进入面板时按需加载
     if (tab.dataset.tab === 'pool') loadPool();
     if (tab.dataset.tab === 'logs' && currentRole === 'admin') loadLogs();
-    if (tab.dataset.tab === 'localnode' && currentRole === 'admin') loadLocalNodeStatus();
+    if (tab.dataset.tab === 'localnode' && currentRole === 'admin') { loadConfig(); loadLocalNodeStatus(); }
     if (tab.dataset.tab === 'config' && currentRole === 'admin') loadConfig();
   });
 });
@@ -1201,6 +1201,10 @@ function collectFields(containerId) {
     else if (kind === 'number') value = input.value === '' ? '' : Number(input.value);
     else if (kind === 'list') value = input.value.split('\n').map((s) => s.trim()).filter(Boolean);
     else value = input.value;
+    // 空值不覆盖已有配置（用户没填的字段保持原值；bool/select 是显式选择，始终提交）
+    if (kind !== 'bool' && kind !== 'select') {
+      if (value === '' || value === null || (Array.isArray(value) && value.length === 0)) return;
+    }
     setByPath(patch, key, value);
   });
   return patch;
