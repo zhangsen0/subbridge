@@ -103,6 +103,11 @@ class SqliteStore {
     this._flushTimer = Promise.resolve().then(() => this._flushAsync()).finally(() => { this._flushTimer = null; });
   }
 
+  /** 等待全部未完成落盘完成（测试 / 备份导出前调用，保证跨实例一致） */
+  async flush() {
+    if (this._flushTimer) await this._flushTimer;
+  }
+
   /** 数据目录路径 */
   dataDir() {
     return this.root;

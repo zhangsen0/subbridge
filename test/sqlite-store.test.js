@@ -40,9 +40,8 @@ test('SQLite 驱动：读写配置 / 模板 / 数据文件 / 缓存', { skip }, 
   store.cacheDelete('k');
   assert.equal(store.cacheGet('k'), undefined);
 
-  // 数据目录（等待防抖落盘后断言文件存在）
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+  // 数据目录（等待异步落盘完成后断言文件存在）
+  if (typeof store.flush === 'function') await store.flush();
   assert.ok(store.dataDir(), '应返回数据目录');
   assert.ok(fs.existsSync(path.join(dir, 'subbridge.sqlite')), 'sqlite 数据文件应存在');
 });
@@ -51,9 +50,9 @@ test('SQLite 驱动：数据落库可跨实例读取（持久化）', { skip }, 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-sqlite-persist-'));
   const s1 = await createStoreAsync({ storage: { driver: 'sqlite' } }, dir);
   await s1.writeDataFile('persist.txt', 'persisted-value');
-  // 等待防抖落盘完成
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
+  // 等待异步落盘完成（模拟真实落库后再重启）
+  if (typeof s1.flush === 'function') await s1.flush();
+  else await new Promise((resolve) => setTimeout(resolve, 100));
 
   // 新实例（模拟重启）读取同一数据库文件
   const s2 = await createStoreAsync({ storage: { driver: 'sqlite' } }, dir);
