@@ -26,7 +26,9 @@ const http = require('http');
 const net = require('net');
 const tls = require('tls');
 const crypto = require('crypto');
+const { Duplex } = require('stream');
 const { SocksClient } = require('socks');
+const WebSocket = require('ws');
 
 /* ------------------------------------------------------------------ */
 /* 工具函数                                                             */
@@ -391,35 +393,183 @@ class TrojanClient {
   }
 }
 
-/** Vless 客户端：TLS + 版本 + uuid + 命令 + 目标地址头（TCP 直连） */
+/**
+ * 构造 vless 协议头（版本 + uuid + 附加信息 + 命令 + ATYP + 地址 + 端口）
+ * @param {string} uuid 节点 uuid
+ * @param {string} host 目标主机
+ * @param {number} port 目标端口
+ * @returns {Buffer} vless 请求头
+ */
+function buildVlessHead(uuid, host, port) {
+  const uuidHex = uuid.replace(/-/g, '');
+  if (!/^[0-9a-fA-F]{32}$/.test(uuidHex)) throw new Error('vless uuid 格式不正确: ' + uuid);
+  const addrHead = buildAddrHead(host, port);
+  const uuidBuf = Buffer.from(uuidHex, 'hex');
+  return Buffer.concat([
+    Buffer.from([0x00]), // 版本 0
+    uuidBuf,
+    Buffer.from([0x00]), // 附加信息长度 0
+    Buffer.from([0x01]), // 命令：1=TCP 连接
+    addrHead.subarray(addrHead.length - 2), // 端口（2 字节）
+    Buffer.from([addrHead[0]]), // ATYP
+    addrHead.subarray(1, addrHead.length - 2), // 地址
+  ]);
+}
+
+/**
+ * 把 WebSocket 会话包装成双工流（TCP 隧道语义）。
+ * @param {import('ws').WebSocket} ws 已建立的 ws 连接
+ * @param {number} [skipFirstBytes] 跳过首帧前 N 字节（vless 服务端响应头）
+ * @param {() => void} [onClose] 关闭回调
+ * @returns {import('stream').Duplex} 可 pipe 的双工流
+ */
+function wsToDuplex(ws, skipFirstBytes, onClose) {
+  const skip = Math.max(0, Number(skipFirstBytes) || 0);
+  let first = true;
+  const duplex = new Duplex({
+    read() {
+      // 数据由 message 事件推入，无需主动读取
+    },
+    write(chunk, enc, cb) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(chunk, (err) => cb(err || undefined));
+      } else {
+        cb(new Error('ws 已关闭'));
+      }
+    },
+    final(cb) {
+      try { ws.close(); } catch (e) { /* ignore */ }
+      cb();
+    },
+    destroy(err, cb) {
+      try { ws.terminate(); } catch (e) { /* ignore */ }
+      cb(err);
+    },
+  });
+  ws.on('message', (data) => {
+    let buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    if (first && skip > 0) {
+      first = false;
+      buf = buf.subarray(skip); // 丢弃 vless 响应头字节，保留剩余数据
+      if (buf.length === 0) return;
+    }
+    duplex.push(buf);
+  });
+  ws.on('close', () => {
+    if (onClose) onClose();
+    duplex.push(null);
+  });
+  ws.on('error', (err) => duplex.destroy(err));
+  return duplex;
+}
+
+/**
+ * 把 TCP 隧道包装成双工流，可跳过首帧前 N 字节（vless/trojan 响应头）。
+ * @param {import('net').Socket} socket 已建立并写入协议头的 socket
+ * @param {number} [skipFirstBytes] 首帧需跳过的字节数
+ * @returns {import('stream').Duplex}
+ */
+function socketToDuplex(socket, skipFirstBytes) {
+  const skip = Math.max(0, Number(skipFirstBytes) || 0);
+  let first = true;
+  const duplex = new Duplex({
+    read() {
+      // 数据由 socket data 事件推入
+    },
+    write(chunk, enc, cb) {
+      if (!socket.destroyed) {
+        socket.write(chunk, cb);
+      } else {
+        cb(new Error('隧道已关闭'));
+      }
+    },
+    final(cb) {
+      try { socket.end(); } catch (e) { /* ignore */ }
+      cb();
+    },
+    destroy(err, cb) {
+      try { socket.destroy(); } catch (e) { /* ignore */ }
+      cb(err);
+    },
+  });
+  socket.on('data', (buf) => {
+    if (first && skip > 0) {
+      first = false;
+      buf = buf.subarray(skip);
+      if (buf.length === 0) return;
+    }
+    duplex.push(buf);
+  });
+  socket.on('close', () => duplex.push(null));
+  socket.on('error', (err) => duplex.destroy(err));
+  return duplex;
+}
+
+/** Vless 客户端：TLS + 版本 + uuid + 命令 + 目标地址头（支持 TCP 直连与 ws 传输） */
 class VlessClient {
   constructor(opts) {
     this.server = opts.server;
     this.port = Number(opts.port);
     this.uuid = opts.uuid || opts.password || '';
     this.sni = opts.sni || '';
+    this.network = (opts.network || 'tcp').toLowerCase();
+    this.wsPath = opts.wsPath || '/';
+    this.allowInsecure = !!opts.allowInsecure;
   }
 
+  /** 建立到目标 host:port 的 vless 隧道（TCP 直连或 ws 传输） */
   async connect(host, port) {
-    const socket = await tlsConnect(this, this.server, this.port);
-    const uuidHex = this.uuid.replace(/-/g, '');
-    if (!/^[0-9a-fA-F]{32}$/.test(uuidHex)) {
-      socket.destroy();
-      throw new Error('vless uuid 格式不正确: ' + this.uuid);
+    const head = buildVlessHead(this.uuid, host, port);
+    if (this.network === 'ws') {
+      return this._connectWs(head);
     }
-    const uuidBuf = Buffer.from(uuidHex, 'hex');
-    const addrHead = buildAddrHead(host, port);
-    const head = Buffer.concat([
-      Buffer.from([0x00]), // 版本 0
-      uuidBuf,
-      Buffer.from([0x00]), // 附加信息长度 0
-      Buffer.from([0x01]), // 命令：1=TCP 连接
-      addrHead.subarray(addrHead.length - 2), // 端口（2 字节）
-      Buffer.from([addrHead[0]]), // ATYP
-      addrHead.subarray(1, addrHead.length - 2), // 地址
-    ]);
+    const socket = await tlsConnect(this, this.server, this.port);
+    // TCP 模式同样有 1 字节响应头：先建双工流（注册 data 监听，避免首帧丢失）再写协议头
+    const duplex = socketToDuplex(socket, 1);
     socket.write(head);
-    return socket;
+    return duplex;
+  }
+
+  /** ws 传输：wss 握手 + vless 头经二进制帧发送，包装为双工流 */
+  _connectWs(head) {
+    return new Promise((resolve, reject) => {
+      const wsUrl = `wss://${this.server}:${this.port}${this.wsPath.startsWith('/') ? this.wsPath : '/' + this.wsPath}`;
+      const ws = new WebSocket(wsUrl, {
+        headers: {
+          Host: this.sni || this.server,
+          Origin: `https://${this.sni || this.server}`,
+        },
+        // servername 必须用 SNI（CF 中转节点按 SNI 路由，用 IP 会被拒绝）
+        servername: this.sni || this.server,
+        rejectUnauthorized: !this.allowInsecure,
+        handshakeTimeout: 10000,
+      });
+      const timer = setTimeout(() => {
+        try { ws.terminate(); } catch (e) { /* ignore */ }
+        reject(new Error(`vless ws 握手超时 ${this.server}:${this.port}`));
+      }, 12000);
+      ws.once('open', () => {
+        clearTimeout(timer);
+        // 先建双工流（注册 message 监听）再发协议头，保证首帧（vless 响应头）不丢失
+        const duplex = wsToDuplex(ws, 1);
+        try {
+          ws.send(head, { binary: true });
+        } catch (e) {
+          reject(e);
+          return;
+        }
+        resolve(duplex);
+      });
+      ws.once('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      ws.once('unexpected-response', (req, res) => {
+        clearTimeout(timer);
+        res.resume();
+        reject(new Error(`vless ws 握手失败 HTTP ${res.statusCode}`));
+      });
+    });
   }
 }
 
@@ -443,10 +593,11 @@ function createLocalBridge(connectFn) {
           clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
           if (head && head.length) up.write(head);
           up.pipe(clientSocket).pipe(up);
-          up.on('error', () => clientSocket.destroy());
+          up.on('error', (e) => { console.error('[proxyBridge] 隧道错误:', e && e.message ? e.message : e); clientSocket.destroy(); });
           clientSocket.on('error', () => up.destroy());
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error('[proxyBridge] 隧道建立失败:', err && err.message ? err.message : err);
           try { clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n'); } catch (e) { /* ignore */ }
           clientSocket.destroy();
         });
@@ -540,6 +691,8 @@ function buildConnectFn(node) {
     const client = new VlessClient({
       server: node.server, port: node.port,
       uuid: node.uuid || node.password || '', sni: node.sni || '',
+      network: node.network || 'tcp', wsPath: node.wsPath || '/',
+      allowInsecure: !!node.allowInsecure,
     });
     return (host, port) => client.connect(host, port);
   }
@@ -551,7 +704,7 @@ function unsupportedReason(node) {
   const type = (node.type || '').toLowerCase();
   if (type === 'vmess') return 'vmess 暂不支持自动中转（协议实现繁杂）';
   if (type === 'hysteria2' || type === 'hysteria' || type === 'tuic') return `${type} 基于 QUIC，暂不支持作为抓取中转`;
-  if ((node.network || '').toLowerCase() === 'ws' && ['vless', 'trojan', 'vmess'].includes(type)) return 'WS 传输模式暂不支持作为抓取中转';
+  if ((node.network || '').toLowerCase() === 'ws' && type === 'trojan') return 'trojan ws 传输暂不支持作为抓取中转';
   return `协议 ${node.type} 暂不支持作为抓取中转`;
 }
 
@@ -608,6 +761,7 @@ module.exports = {
   closeAllBridges,
   buildAddrHead,
   parseAddrHead,
+  buildVlessHead,
   ShadowsocksClient,
   TrojanClient,
   VlessClient,

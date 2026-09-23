@@ -20,6 +20,8 @@ const {
   startBridge,
   closeAllBridges,
   ShadowsocksClient,
+  VlessClient,
+  buildVlessHead,
 } = require('../src/core/proxyBridge');
 
 test('buildAddrHead / parseAddrHead 域名与 IPv4 编解码', () => {
@@ -45,6 +47,9 @@ test('isSupportedProxyType 与 unsupportedReason', () => {
   assert.ok(!isSupportedProxyType('tuic'));
   assert.ok(unsupportedReason({ type: 'vmess' }).includes('vmess'));
   assert.ok(unsupportedReason({ type: 'hysteria2' }).includes('QUIC'));
+  // vless + ws 传输已支持（CF 中转节点常用），不再拒绝
+  assert.ok(unsupportedReason({ type: 'vless', network: 'ws' }).includes('协议 vless 暂不支持'));
+  assert.ok(unsupportedReason({ type: 'trojan', network: 'ws' }).includes('trojan ws'));
 });
 
 test('ShadowsocksClient 参数校验（方法解析）', () => {
@@ -192,4 +197,22 @@ test('closeAllBridges 幂等可调用', () => {
   closeAllBridges();
   closeAllBridges();
   assert.ok(true);
+});
+
+test('buildVlessHead 头结构（版本+uuid+命令+ATYP+地址+端口）', () => {
+  const head = buildVlessHead('90cd4a77-141a-43c9-991b-08263cfe9c10', '162.159.198.1', 8443);
+  assert.strictEqual(head[0], 0x00);       // 版本 0
+  assert.strictEqual(head.length, 1 + 16 + 1 + 1 + 2 + 1 + 4); // 版本+uuid+附加+命令+端口+ATYP+IPv4
+  assert.strictEqual(head.toString('hex', 1, 17), '90cd4a77141a43c9991b08263cfe9c10'); // uuid
+  assert.strictEqual(head[18], 0x01);      // 命令 TCP
+  assert.ok(head.readUInt16BE(19) === 8443); // 端口
+  assert.strictEqual(head[21], 0x01);      // ATYP IPv4
+});
+
+test('VlessClient ws 传输参数解析（network/wsPath）', () => {
+  const c = new VlessClient({ server: '162.159.198.1', port: 8443, uuid: 'x', network: 'ws', wsPath: '/' });
+  assert.strictEqual(c.network, 'ws');
+  assert.strictEqual(c.wsPath, '/');
+  const c2 = new VlessClient({ server: 's', port: 443, uuid: 'x' });
+  assert.strictEqual(c2.network, 'tcp');
 });

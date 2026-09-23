@@ -24,7 +24,7 @@ const { startBridge, isSupportedProxyType, unsupportedReason } = require('./prox
  * @returns {Promise<null|{url: string, node: object, skipped: string[]}>}
  *   返回上游代理 URL（http/https/socks/ss/trojan/vless 均可）、选中节点与跳过原因
  */
-async function pickProxyFromPool(nodePool, { types, ttlMs } = {}) {
+async function pickProxyFromPool(nodePool, { types, ttlMs, skipLocalnode = false } = {}) {
   if (!nodePool) return { url: null, node: null, skipped: [] };
   const wanted = Array.isArray(types) && types.length
     ? types.map((t) => String(t).toLowerCase()).filter(Boolean)
@@ -32,7 +32,11 @@ async function pickProxyFromPool(nodePool, { types, ttlMs } = {}) {
   const typeSet = new Set(wanted);
   const nodes = await nodePool.list();
   const candidates = nodes.filter(
-    (n) => typeSet.has(String(n.type || '').toLowerCase()) && n.enabled !== false && n.server && n.port,
+    (n) =>
+      typeSet.has(String(n.type || '').toLowerCase()) &&
+      n.enabled !== false && n.server && n.port &&
+      // 默认排除本机节点：本机节点出口=本机网络，抓境外源用它中转依然连不通
+      !(skipLocalnode && n.source === 'localnode'),
   );
   if (!candidates.length) return { url: null, node: null, skipped: [] };
 

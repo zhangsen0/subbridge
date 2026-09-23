@@ -15,14 +15,39 @@
 const crypto = require('node:crypto');
 const { buildConverted, buildOptions, extractUrls } = require('./convert');
 const { maskNode } = require('./grabApi');
+const { nodeKey } = require('../core/nodePool');
 
 function registerSourceApi(app, ctx) {
   const sources = ctx.sources;
 
+  /**
+   * 抓取后自动清理：删除本次入库节点中"已测且不可用"的节点。
+   * 由 grab.auto_probe + grab.auto_remove_unreachable 两个配置共同控制，
+   * 默认关闭（保留全部节点），开启后实现"抓取→测速→自动删除不可用"闭环。
+   * @param {object[]} nodes 本次抓取入库的节点
+   * @returns {Promise<number>} 删除数量
+   */
+  async function removeUnreachableAfterGrab(nodes) {
+    const grabCfg = (ctx.config && ctx.config.grab) || {};
+    if (grabCfg.auto_remove_unreachable !== true || !ctx.nodePool) return 0;
+    const deadKeys = (nodes || [])
+      .filter((n) => n.probe && n.probe.alive === false && n.probe.testedAt)
+      .map((n) => nodeKey(n));
+    if (!deadKeys.length) return 0;
+    return ctx.nodePool.remove(deadKeys);
+  }
+
   /** 抓取并入库（手动/自动共用），返回统计 */
   async function grabSources(urls, { probe = false } = {}) {
-    const opts = buildOptions({ probe: probe ? '1' : '0' }, ctx.config);
-    return buildConverted(urls, opts, ctx);
+    const grabCfg = (ctx.config && ctx.config.grab) || {};
+    // 抓取后自动测速：手动 probe 或配置 grab.auto_probe 开启（手动/自动/定时采集共用）
+    const autoProbe = probe === true || grabCfg.auto_probe === true;
+    const opts = buildOptions({ probe: autoProbe ? '1' : '0' }, ctx.config);
+    const result = await buildConverted(urls, opts, ctx);
+    // 测速完成后，按配置自动删除不可用节点
+    const removed = await removeUnreachableAfterGrab(result.nodes);
+    if (removed) result.removedUnreachable = removed;
+    return result;
   }
 
   /** 抓取单个源并回写状态 */
@@ -31,8 +56,15 @@ function registerSourceApi(app, ctx) {
       const result = await grabSources([item.url], { probe });
       const added = result.poolStats ? result.poolStats.added : 0;
       const updated = result.poolStats ? result.poolStats.updated : 0;
-      await ctx.sources.recordResult(item.id, { ok: true, nodes: result.nodes.length });
-      return { id: item.id, url: item.url, ok: true, parsed: result.nodes.length, added, updated };
+      await ctx.sources.recordResult(item.id, {
+        ok: true, nodes: result.nodes.length,
+        removed: result.removedUnreachable || 0,
+      });
+      return {
+        id: item.id, url: item.url, ok: true,
+        parsed: result.nodes.length, added, updated,
+        removedUnreachable: result.removedUnreachable || 0,
+      };
     } catch (err) {
       await ctx.sources.recordResult(item.id, { ok: false, nodes: 0, error: err.message });
       return { id: item.id, url: item.url, ok: false, error: err.message };

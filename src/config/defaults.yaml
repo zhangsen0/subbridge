@@ -31,6 +31,8 @@ fetcher:
   user_agent: "SubBridge/1.0"
   # 单次抓取内容大小上限（字节），默认 10MB
   max_body_bytes: 10485760
+  # 单个来源一次抓取最多入库的节点数（0=不限制），防止海量订阅打爆节点池
+  max_per_source: 500
   # 并发抓取的订阅地址数量上限
   max_concurrency: 5
   # 上游转发代理，支持 http/https，例如 http://user:pass@host:port；留空表示直连
@@ -41,6 +43,9 @@ fetcher:
   # 节点池无可用代理时，回退为"本机直连"拉取（默认 true）。
   # 关闭后，节点池无节点 / 无可用代理时将直接失败并记录错误，不再直连。
   pool_empty_fallback_direct: true
+  # 池代理挑选时是否排除本机节点（source=localnode）。默认 true：本机节点出口=本机网络，
+  # 抓取境外源时用它中转依然连不通，反而拖慢抓取；需要"本机节点自中继"时可关闭
+  pool_proxy_skip_localnode: true
   # 节点池代理类型白名单（支持 http / https / socks4 / socks5 / ss / trojan / vless；
   # socks/ss/trojan/vless 通过本地协议桥转成 http 上游，vmess/ws/QUIC 暂不支持自动中转）
   proxy_pool_types:
@@ -204,6 +209,8 @@ subscription:
   extra_sources: []
   # 主订阅实时抓取结果是否直接并入 /sub 输出（false 时仅作为节点池来源，不直接输出）
   merge_main_urls: true
+  # /sub 拉取时主订阅池刷新方式：true=异步刷新（立即输出当前池，后台抓取，防客户端超时）；false=同步等抓取完成
+  async_refresh: true
   # 是否并入节点池累积节点（每次抓取自动补充/更新、不自动删除）
   include_pool: true
   # /sub 默认目标格式
@@ -269,8 +276,12 @@ grab:
   link_keywords: ["sub", "subscribe", "client", "api", "token", "node", "v2ray", "clash", "config"]
   # 自动采集：间隔（分钟），0=关闭；开启后定时抓取全部"启用且参与采集"的来源
   auto_interval_minutes: 0
-  # 自动采集后是否测速
+  # 自动采集 cron 表达式（优先级高于间隔），如 "0 0 * * *"=每天 00:00；留空则用 auto_interval_minutes
+  auto_cron: ""
+  # 抓取（手动/自动/采集）完成后是否自动对本次入库节点测速
   auto_probe: false
+  # auto_probe 开启时，测速后是否自动删除"已测且不可用"的节点（默认关闭=保留全部）
+  auto_remove_unreachable: false
 
 fetch_log:
   # 抓取日志最大保留条数（内存环形缓冲，超出自动丢弃最旧）

@@ -38,7 +38,7 @@ const { AutoGrab } = require('../core/autoGrab');
 const { FetchLog } = require('./fetchLog');
 const { handleSubscribe } = require('./subscribe');
 const { resolveRole, buildSubscriptionUrl } = require('./auth');
-const { getStore } = require('../config/loader');
+const { getStore, updateConfig } = require('../config/loader');
 const { LocalNodeManager } = require('../localnode/manager');
 const { NodePool } = require('../core/nodePool');
 
@@ -71,6 +71,7 @@ function createServer(config) {
     config,
     templatesDir: path.join(__dirname, '..', '..', 'templates'),
     store: getStore(),
+    poolRefreshing: false, // /sub 后台异步刷新主订阅池的节流标志（进程内）
   };
 
   // 本地节点管理器（本机作为订阅节点 + 可选 CF 隧道）

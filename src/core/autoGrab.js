@@ -10,7 +10,25 @@
  * 状态通过 /api/auto-grab 暴露；每次运行结果记入事件日志并回写各源 lastStatus。
  */
 
-const CHECK_INTERVAL_MS = 60 * 1000; // 每 60 秒检查一次是否到点
+const CHECK_INTERVAL_MS = 30 * 1000; // 每 30 秒检查一次是否到点
+const cronParser = require('cron-parser');
+
+/**
+ * 解析 cron 表达式为下一次触发时间（毫秒时间戳）。
+ * 支持标准 5 段 cron（分 时 日 月 周），如 "0 0 * * *"=每天 00:00。
+ * @param {string} expr cron 表达式
+ * @param {Date} [from] 起始时间
+ * @returns {number|null} 下次触发毫秒时间戳；非法表达式返回 null
+ */
+function nextCronMs(expr, from) {
+  try {
+    const interval = cronParser.parseExpression(String(expr).trim(), { currentDate: from || new Date() });
+    const next = interval.next().toDate();
+    return next.getTime();
+  } catch {
+    return null;
+  }
+}
 
 class AutoGrab {
   /**
@@ -31,9 +49,15 @@ class AutoGrab {
   lastRunSummary() { return this._lastSummary; }
   nextRunAt() { return this._nextAt; }
 
-  /** 计算下次运行时间（字符串），未开启返回空 */
+  /** 计算下次运行时间（字符串），未开启返回空；grab.auto_cron（cron 表达式）优先于间隔 */
   _scheduleNext() {
     const cfg = this.ctx.config;
+    const cronExpr = cfg.grab && cfg.grab.auto_cron ? String(cfg.grab.auto_cron).trim() : '';
+    if (cronExpr) {
+      const next = nextCronMs(cronExpr);
+      this._nextAt = next ? new Date(next).toISOString() : '';
+      return;
+    }
     const intervalMin = Math.max(0, Number(cfg.grab && cfg.grab.auto_interval_minutes) || 0);
     if (!intervalMin) { this._nextAt = ''; return; }
     const base = this._lastRunAt ? new Date(this._lastRunAt).getTime() : Date.now();
@@ -44,6 +68,7 @@ class AutoGrab {
   /** 启动定时检查（幂等，可重复调用） */
   start() {
     if (this._timer) return;
+    this._scheduleNext();
     this._timer = setInterval(() => { this._tick().catch(() => {}); }, CHECK_INTERVAL_MS);
     this._tick().catch(() => {});
     if (this._timer.unref) this._timer.unref();
@@ -57,6 +82,15 @@ class AutoGrab {
   /** 周期检查：到点且未运行则触发 */
   async _tick() {
     const cfg = this.ctx.config;
+    const cronExpr = cfg.grab && cfg.grab.auto_cron ? String(cfg.grab.auto_cron).trim() : '';
+    if (cronExpr) {
+      if (this._running) return;
+      const next = nextCronMs(cronExpr);
+      if (next == null) return; // 非法表达式不触发
+      if (Date.now() < next) return;
+      await this.runNow();
+      return;
+    }
     const intervalMin = Math.max(0, Number(cfg.grab && cfg.grab.auto_interval_minutes) || 0);
     if (!intervalMin || this._running) return;
     if (this._lastRunAt && Date.now() - new Date(this._lastRunAt).getTime() < intervalMin * 60 * 1000) return;

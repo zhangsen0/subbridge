@@ -82,6 +82,10 @@ async function fetchSource(source, opts) {
   const grabCfg = (opts.config && opts.config.grab) || {};
   const maxDepth = Math.max(0, Number(grabCfg.max_depth) || 0);
   const maxLinks = Math.max(0, Number(grabCfg.max_links) || 0);
+  const fetcherCfg = (opts.config && opts.config.fetcher) || {};
+  const maxPerSource = Math.max(0, Number(fetcherCfg.max_per_source) || 0);
+  // 单个来源最多入库节点数（0=不限制），防止海量订阅打爆节点池
+  const capNodes = (nodes) => (maxPerSource > 0 ? nodes.slice(0, maxPerSource) : nodes);
   const keywords = Array.isArray(grabCfg.link_keywords) ? grabCfg.link_keywords : [];
   const seen = opts.seen || new Set();
   const history = opts.history || [];
@@ -94,8 +98,9 @@ async function fetchSource(source, opts) {
   if (!isHttpUrl(srcUrl)) {
     const { nodes, format } = parseSubscription(srcUrl);
     for (const n of nodes) n.source = '文本输入';
-    history.push({ url: '', kind: 'text', format, nodes: nodes.length, error: '', durationMs: 0 });
-    return { nodes, kind: 'text' };
+    const cappedText = capNodes(nodes);
+    history.push({ url: '', kind: 'text', format, nodes: cappedText.length, error: '', durationMs: 0 });
+    return { nodes: cappedText, kind: 'text' };
   }
 
   // http(s) 链接：按域名路由到站点适配器（优先），否则按内容分类
@@ -135,11 +140,12 @@ async function fetchSource(source, opts) {
         // 子链接失败不阻断主流程
       }
     }
+    const cappedLinks = capNodes(nodes);
     history.push({
-      url: srcUrl, kind: 'links', format: 'links', nodes: nodes.length,
+      url: srcUrl, kind: 'links', format: 'links', nodes: cappedLinks.length,
       discoveredLinks: discovered, error: '', durationMs: Date.now() - started,
     });
-    return { nodes, kind: 'links' };
+    return { nodes: cappedLinks, kind: 'links' };
   }
 
   let meta;
@@ -166,8 +172,9 @@ async function fetchSource(source, opts) {
     let nodes = parsed.nodes || [];
     for (const n of nodes) n.source = srcUrl;
     if (filterProtocol) nodes = nodes.filter((n) => n.type === filterProtocol);
-    history.push({ ...base, kind: 'site', format: parsed.format, nodes: nodes.length, error: '' });
-    return { nodes, kind: 'site' };
+    const cappedSite = capNodes(nodes);
+    history.push({ ...base, kind: 'site', format: parsed.format, nodes: cappedSite.length, error: '' });
+    return { nodes: cappedSite, kind: 'site' };
   }
 
   // HTML 网页：提取内嵌节点 + 发现订阅链接递归
@@ -189,8 +196,9 @@ async function fetchSource(source, opts) {
         }
       }
     }
-    history.push({ ...base, kind: 'web', format: 'web', nodes: nodes.length, discoveredLinks: discovered, error: '' });
-    return { nodes, kind: 'web' };
+    const cappedWeb = capNodes(nodes);
+    history.push({ ...base, kind: 'web', format: 'web', nodes: cappedWeb.length, discoveredLinks: discovered, error: '' });
+    return { nodes: cappedWeb, kind: 'web' };
   }
 
   // 订阅内容
@@ -198,8 +206,9 @@ async function fetchSource(source, opts) {
   let nodes = parsed.nodes || [];
   if (filterProtocol) nodes = nodes.filter((n) => n.type === filterProtocol);
   for (const n of nodes) n.source = srcUrl;
-  history.push({ ...base, kind: 'subscription', format: parsed.format, nodes: nodes.length, error: '' });
-  return { nodes, kind: 'subscription' };
+  const cappedSub = capNodes(nodes);
+  history.push({ ...base, kind: 'subscription', format: parsed.format, nodes: cappedSub.length, error: '' });
+  return { nodes: cappedSub, kind: 'subscription' };
 }
 
 /**

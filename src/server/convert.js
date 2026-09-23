@@ -89,7 +89,8 @@ async function effectiveFetcherConfig(config, ctx) {
         ? fetcher.proxy_pool_types
         : ['http', 'socks5', 'socks4', 'ss', 'trojan', 'vless'];
       const ttlMs = Number(fetcher.proxy_bridge_ttl_seconds || 300) * 1000;
-      const picked = await pickProxyFromPool(ctx.nodePool, { types, ttlMs });
+      const skipLocalnode = fetcher.pool_proxy_skip_localnode !== false;
+      const picked = await pickProxyFromPool(ctx.nodePool, { types, ttlMs, skipLocalnode });
       if (picked && picked.url) {
         result.fallback_proxy = picked.url;
         result._pool_proxy = picked.node;

@@ -63,10 +63,11 @@ async function handleSubscribe(req, reply, ctx) {
       error: `不支持的目标格式: ${target}（可选：${Object.keys(converters.TARGETS).join(' / ')}）`,
     });
   }
-  const probe =
-    q.probe !== undefined
-      ? q.probe === '1' || q.probe === 'true'
-      : subCfg.probe_by_default !== false;
+  // /sub 拉取绝不同步测速（提速）：节点可用性状态来自节点池/抓取后异步测速结果。
+  // 需要剔除不可达时用 pool.drop_unreachable 或订阅链接 ?drop=1；独立测速走
+  // 「节点库→测速」「抓取后自动测速」「定时自动采集测速」等异步通道。
+  const probe = false;
+  const probeCompat = probe;
 
   // 节点池版本（缓存键的一部分：池更新后缓存自动失效）
   let poolVersion = '';
@@ -80,9 +81,16 @@ async function handleSubscribe(req, reply, ctx) {
     }
   }
 
+  // 自定义选取规则：从节点池取节点（配置 rules 为默认，请求 ?rules= 覆盖）
+  // 提前解析：缓存键需要包含规则内容，避免带规则的请求命中无规则缓存
+  const rulesText = q.rules !== undefined ? String(q.rules) : null;
+  const rules = rulesText !== null ? parseRules(rulesText) : parseRules(subCfg.rules);
+
   // 读取缓存（经存储层，支持 TTL；驱动可实现为进程内存或数据库表）
   const cacheSeconds = Number(subCfg.cache_seconds) || 0;
-  const cacheKey = `subscription:${target}:${probe}:${mergeMain}:${includePool}:${poolVersion}:${hashOf(urls.join(','))}`;
+  // 缓存键必须包含影响输出的全部请求参数（rules 等），否则带规则的请求会命中错误缓存
+  const rulesHash = rules.length ? hashOf(JSON.stringify(rules)) : '';
+  const cacheKey = `subscription:${target}:${probeCompat}:${mergeMain}:${includePool}:${poolVersion}:${rulesHash}:${hashOf(urls.join(','))}`;
   if (cacheSeconds > 0) {
     const hit = ctx.store.cacheGet(cacheKey);
     if (hit) {
@@ -106,10 +114,6 @@ async function handleSubscribe(req, reply, ctx) {
     config,
   );
 
-  // 自定义选取规则：从节点池取节点（配置 rules 为默认，请求 ?rules= 覆盖）
-  const rulesText = q.rules !== undefined ? String(q.rules) : null;
-  const rules = rulesText !== null ? parseRules(rulesText) : parseRules(subCfg.rules);
-
   let result;
   if (!includePool || !ctx.nodePool) {
     // 兼容模式：实时抓取直接输出（不含节点池，旧行为）
@@ -125,13 +129,24 @@ async function handleSubscribe(req, reply, ctx) {
     const warnings = [];
 
     // 1. 刷新池：抓取主订阅（merge_main_urls=true 时）→ 自动入池；失败不阻断输出
+    //    默认异步刷新（subscription.async_refresh=true）：/sub 立刻用当前节点池响应，
+    //    后台抓主订阅入池，避免被墙/慢速源拖垮订阅拉取（Clash 客户端等太久会超时）。
     const fetchUrls = mergeMain ? urls : extraUrls;
     if (fetchUrls.length) {
-      try {
-        const refresh = await buildConverted(fetchUrls, opts, ctx, { extraNodes: [] });
-        warnings.push(...refresh.warnings);
-      } catch (err) {
-        warnings.push(`主订阅刷新失败（继续输出节点池）: ${err.message}`);
+      const doRefresh = async () => {
+        try {
+          const refresh = await buildConverted(fetchUrls, opts, ctx, { extraNodes: [] });
+          warnings.push(...refresh.warnings);
+        } catch (err) {
+          warnings.push(`主订阅刷新失败（继续输出节点池）: ${err.message}`);
+        }
+      };
+      if (subCfg.async_refresh === false) {
+        await doRefresh();
+      } else if (!ctx.poolRefreshing) {
+        // 节流：同一时间只允许一个后台刷新任务，避免每次拉取重复抓源
+        ctx.poolRefreshing = true;
+        doRefresh().finally(() => { ctx.poolRefreshing = false; });
       }
     }
 
