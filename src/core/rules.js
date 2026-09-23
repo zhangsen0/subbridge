@@ -10,7 +10,7 @@
  *   - country   国家/地区白名单（大写）  { type:"country", value:["JP","HK","US"] }
  *   - source    来源域名包含             { type:"source", pattern:"example.com" }
  *   - latency   延迟上限（毫秒，必须有真实数据且 ≤ 上限） { type:"latency", max_ms:200 }
- *   - speed     速度下限（字节/秒，必须有真实数据且 ≥ 下限） { type:"speed", min_bps:1000000 }
+ *   - speed     速度下限（bps 位/秒，如 5000000=5Mbps，必须有真实数据且 ≥ 下限） { type:"speed", min_bps:5000000 }
  *   - sort      排序（latency/speed/name） { type:"sort", key:"latency", order:"asc" }
  *   - limit     数量上限                 { type:"limit", count:20 }
  *
@@ -98,9 +98,10 @@ function applyRules(nodes, rules) {
         break;
       case 'speed':
         // 严格判定：必须有真实测速数据且 ≥ 下限（无数据不算满足，避免虚构指标）
+        // min_bps 语义为 bps（bits/s，如 5000000=5Mbps）；speedBps 为 bytes/s，换算 *8 后比较
         out = out.filter((n) => {
           const s = probeOf(n) && probeOf(n).speedBps;
-          return s != null && s >= Number(rule.min_bps);
+          return s != null && s * 8 >= Number(rule.min_bps);
         });
         break;
       case 'sort':

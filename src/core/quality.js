@@ -10,7 +10,7 @@
  * 门槛为有序数组，每条可带 enabled:false 单独停用（默认开启）：
  *   - alive   必须可用                    { type: "alive" }
  *   - latency 延迟上限（毫秒）             { type: "latency", max_ms: 300 }
- *   - speed   速度下限（字节/秒）          { type: "speed", min_bps: 1000000 }
+ *   - speed   速度下限（bps 位/秒，如 5000000=5Mbps） { type: "speed", min_bps: 5000000 }
  *   - score   质量分下限（0-100）          { type: "score", min_score: 60 }
  *   - name    名称正则排除（静态辅助）     { type: "name", exclude: "测试|过期" }
  *
@@ -73,7 +73,8 @@ function passGate(node, gate, defaultPass) {
       return p.latencyMs <= Number(gate.max_ms);
     case 'speed':
       if (!p || p.speedBps == null) return !!defaultPass;
-      return p.speedBps >= Number(gate.min_bps);
+      // min_bps 语义为 bps（位/秒）；speedBps 为 bytes/s，换算 *8 后比较
+      return p.speedBps * 8 >= Number(gate.min_bps);
     case 'score': {
       const s = qualityScore(node);
       if (s == null) return !!defaultPass;
