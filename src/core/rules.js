@@ -9,8 +9,8 @@
  *   - type      节点类型白名单           { type:"type", value:["ss","vmess","trojan"] }
  *   - country   国家/地区白名单（大写）  { type:"country", value:["JP","HK","US"] }
  *   - source    来源域名包含             { type:"source", pattern:"example.com" }
- *   - latency   延迟上限（毫秒，未测过放行） { type:"latency", max_ms:200 }
- *   - speed     速度下限（字节/秒，未测过放行） { type:"speed", min_bps:1000000 }
+ *   - latency   延迟上限（毫秒，必须有真实数据且 ≤ 上限） { type:"latency", max_ms:200 }
+ *   - speed     速度下限（字节/秒，必须有真实数据且 ≥ 下限） { type:"speed", min_bps:1000000 }
  *   - sort      排序（latency/speed/name） { type:"sort", key:"latency", order:"asc" }
  *   - limit     数量上限                 { type:"limit", count:20 }
  *
@@ -90,15 +90,17 @@ function applyRules(nodes, rules) {
         out = out.filter((n) => String(n.source || '').includes(String(rule.pattern || '')));
         break;
       case 'latency':
+        // 严格判定：必须有真实延迟数据且 ≤ 上限（无数据不算满足，避免虚构指标）
         out = out.filter((n) => {
           const l = probeOf(n) && probeOf(n).latencyMs;
-          return l == null || l <= Number(rule.max_ms);
+          return l != null && l <= Number(rule.max_ms);
         });
         break;
       case 'speed':
+        // 严格判定：必须有真实测速数据且 ≥ 下限（无数据不算满足，避免虚构指标）
         out = out.filter((n) => {
           const s = probeOf(n) && probeOf(n).speedBps;
-          return s == null || s >= Number(rule.min_bps);
+          return s != null && s >= Number(rule.min_bps);
         });
         break;
       case 'sort':

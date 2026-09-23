@@ -51,7 +51,7 @@ test('applyRules：type / source 筛选', () => {
   assert.deepEqual(out.map((n) => n.name), ['B']);
 });
 
-test('applyRules：latency 上限（未测过放行）+ sort + limit 组合', () => {
+test('applyRules：latency 上限（未测不满足，剔除）+ sort + limit 组合', () => {
   const nodes = [
     makeNode('慢', { probe: { alive: true, latencyMs: 500 } }),
     makeNode('快', { probe: { alive: true, latencyMs: 80 } }),
@@ -73,14 +73,14 @@ test('applyRules：country 国家筛选（大小写不敏感）', () => {
   assert.deepEqual(out.map((n) => n.name), ['东京']);
 });
 
-test('applyRules：speed 下限', () => {
+test('applyRules：speed 下限（未测节点不满足，剔除）', () => {
   const nodes = [
     makeNode('快', { probe: { alive: true, speedBps: 5000000 } }),
     makeNode('慢', { probe: { alive: true, speedBps: 100000 } }),
     makeNode('未测'),
   ];
   const out = applyRules(nodes, [{ type: 'speed', min_bps: 1000000 }]);
-  assert.deepEqual(out.map((n) => n.name), ['快', '未测']);
+  assert.deepEqual(out.map((n) => n.name), ['快']);
 });
 
 test('applyRules：空规则列表原样返回', () => {
