@@ -31,9 +31,9 @@ scenarios:
     config_patch:
       converter:
         udp: true
-      clash:
-        url_test_url: https://www.google.com/generate_204
-        url_test_interval: 180
+        clash:
+          url_test_url: https://www.google.com/generate_204
+          url_test_interval: 180
       probe:
         speed_test: true
         speed_test_url: https://speed.cloudflare.com/__down?bytes=10000000
@@ -65,8 +65,8 @@ scenarios:
       converter:
         udp: true
         sort: ''
-      clash:
-        url_test_interval: 300
+        clash:
+          url_test_interval: 300
   gaming:
     label: 游戏加速
     emoji: 🎮
@@ -389,8 +389,8 @@ scenarios:
     config_patch:
       converter:
         udp: true
-      clash:
-        url_test_interval: 120
+        clash:
+          url_test_interval: 120
   privacy:
     label: 隐私保护
     emoji: 🔒
@@ -521,8 +521,8 @@ scenarios:
     config_patch:
       converter:
         udp: true
-      clash:
-        url_test_interval: 180
+        clash:
+          url_test_interval: 180
   power:
     label: 极客折腾
     emoji: ⚡
