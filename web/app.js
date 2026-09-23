@@ -266,6 +266,17 @@ async function identifyRole() {
 }
 
 /** 更新驾驶舱「本机订阅链接」常驻框（登录后显示） */
+// 常用自定义规则链接（预置，与全站参数 → 内置模板中的规则一致；点击即复制）
+const COMMON_RULES = [
+  { label: '⚡ 快速稳定', desc: '延迟≤300ms 前20', rules: [{ type: 'latency', max_ms: 300 }, { type: 'sort', key: 'latency', order: 'asc' }, { type: 'limit', count: 20 }] },
+  { label: '🚀 高速优先', desc: '≥1MB/s 前30', rules: [{ type: 'speed', min_bps: 1000000 }, { type: 'sort', key: 'speed', order: 'desc' }, { type: 'limit', count: 30 }] },
+  { label: '🎬 影视模式', desc: '≥5MB/s 前20', rules: [{ type: 'speed', min_bps: 5000000 }, { type: 'latency', max_ms: 500 }, { type: 'sort', key: 'speed', order: 'desc' }, { type: 'limit', count: 20 }] },
+  { label: '🔒 仅 VLESS', desc: 'VLESS 快速 前50', rules: [{ type: 'type', value: ['vless'] }, { type: 'latency', max_ms: 500 }, { type: 'limit', count: 50 }] },
+  { label: '🌏 港台专线', desc: 'HK/TW 前10', rules: [{ type: 'country', value: ['HK', 'TW'] }, { type: 'sort', key: 'latency', order: 'asc' }, { type: 'limit', count: 10 }] },
+  { label: '🧹 干净可用', desc: '排除测试/过期', rules: [{ type: 'exclude', pattern: '测试|过期|免费' }, { type: 'sort', key: 'latency', order: 'asc' }, { type: 'limit', count: 50 }] },
+  { label: '🗂️ 全部节点', desc: '按延迟排序', rules: [{ type: 'sort', key: 'latency', order: 'asc' }] },
+];
+
 function renderSubLinkCard() {
   const card = $('sub-link-card');
   if (!card) return;
@@ -274,6 +285,26 @@ function renderSubLinkCard() {
   if (loggedIn && subscriptionUrl) {
     const val = $('sub-link-value');
     if (val && val.textContent !== subscriptionUrl) val.textContent = subscriptionUrl;
+    // 常用规则链接：本机订阅链接 + rules 参数（点击复制）
+    const grid = $('sub-rules-grid');
+    if (grid && !grid.dataset.built) {
+      grid.dataset.built = '1';
+      grid.innerHTML = COMMON_RULES.map((item, idx) => {
+        const sep = subscriptionUrl.includes('?') ? '&' : '?';
+        const url = subscriptionUrl + sep + 'rules=' + encodeURIComponent(JSON.stringify(item.rules));
+        return '<button type="button" class="rule-chip" data-idx="' + idx + '" title="' + escapeHtml(item.desc) + '">' +
+          escapeHtml(item.label) + '<small>' + escapeHtml(item.desc) + '</small></button>';
+      }).join('');
+      grid.querySelectorAll('.rule-chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+          const item = COMMON_RULES[Number(chip.dataset.idx)];
+          if (!item) return;
+          const sep = subscriptionUrl.includes('?') ? '&' : '?';
+          copyTextToClipboard(subscriptionUrl + sep + 'rules=' + encodeURIComponent(JSON.stringify(item.rules)));
+          toast('已复制：' + item.label);
+        });
+      });
+    }
   }
 }
 

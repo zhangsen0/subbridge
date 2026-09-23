@@ -430,3 +430,13 @@ body[data-mode='advanced'] [data-mode='expert']:not(.seg button) { display: none
 .ap-witem input[type="text"] { flex: 1; min-width: 140px; margin-left: 4px; }
 .btn.danger { background: #dc3545; color: #fff; border-color: #dc3545; }
 .btn.danger:hover { background: #c82333; }
+
+/* ---------- 常用规则链接 ---------- */
+.sub-rules { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.sub-rules-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+.sub-rules-head b { font-size: 14px; }
+.sub-rules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rule-chip { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; background: var(--card); cursor: pointer; font-size: 13px; text-align: left; }
+.rule-chip:hover { border-color: var(--accent); color: var(--accent); }
+.rule-chip small { font-size: 11px; color: var(--text-faint); }
