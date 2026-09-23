@@ -281,6 +281,16 @@ async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
     warnings.push('未配置主订阅地址，仅返回本机节点');
   }
 
+  // 2.4 订阅输出只保留可用节点（subscription.only_alive 配置，默认开）：
+  //     必须【先】过滤可用节点【再】应用规则，否则 sort+limit 会把可用节点切出列表
+  if (opts.onlyAlive) {
+    const before = nodes.length;
+    const kept = nodes.filter((n) => n.probe && n.probe.alive);
+    nodes.splice(0, nodes.length, ...kept);
+    const dropped = before - kept.length;
+    if (dropped > 0) warnings.push(`订阅可用性过滤：剔除 ${dropped} 个未测/不可用节点，仅输出可用节点`);
+  }
+
   // 2.5 自定义选取规则（/convert、/api/grab 传入 ?rules= 时按规则从节点中挑选）
   if (opts.rules) {
     const { parseRules, applyRules } = require('../core/rules');
@@ -292,14 +302,6 @@ async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
 
   // 3. 过滤/去重/排序/重命名
   let processed = applyPipeline(nodes, opts);
-
-  // 3.5 订阅输出只保留可用节点（subscription.only_alive 配置，默认开）：
-  //     未测/不可达节点不输出，保证客户端拉取的节点真实可用（用户核心诉求）
-  if (opts.onlyAlive) {
-    processed = processed.filter((n) => n.probe && n.probe.alive);
-    const dropped = nodes.length - processed.length;
-    if (dropped > 0) warnings.push(`订阅可用性过滤：剔除 ${dropped} 个未测/不可用节点，仅输出可用节点`);
-  }
 
   // 提示目标格式不支持的节点类型（如 OpenVPN 无法转 Clash 节点，输出时会被跳过）
   const unsupported = converters.unsupportedTypes(opts.target, processed);

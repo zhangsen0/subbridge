@@ -49,7 +49,8 @@ test('SourceStore：新增/编辑/删除 + 与 extra_sources 双向同步', asyn
   const ss = new SourceStore(store, fakeConfig(['https://old.com/sub']), async (patch) => {
     saved.push(patch.subscription.extra_sources.slice());
   });
-  // 旧配置链接自动并入
+  // 旧配置链接自动并入（等待异步加载完成）
+  await ss.ready();
   const list0 = ss.list();
   assert.equal(list0.length, 1);
   assert.equal(list0[0].url, 'https://old.com/sub');

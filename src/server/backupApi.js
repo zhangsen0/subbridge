@@ -16,8 +16,9 @@ const pkg = require('../../package.json');
 const { replaceConfig } = require('../config/loader');
 
 // 备份中允许恢复的生成文件（数据目录下，经存储层读写）
-// 备份/迁移白名单数据文件：节点池（nodes.json）+ 隧道配置等
-const KNOWN_FILES = ['nodes.json', 'cf-tunnel.yml'];
+// 备份/迁移白名单数据文件：节点池（nodes.json 含节点状态）+ 抓取来源（sources.json 含源状态）+ 隧道配置
+// 事件日志为进程内存流水，不在迁移范围内（按设计不导出）
+const KNOWN_FILES = ['nodes.json', 'sources.json', 'cf-tunnel.yml'];
 
 /** 注册备份与迁移路由 */
 async function registerBackupApi(app, ctx) {
@@ -100,6 +101,14 @@ async function registerBackupApi(app, ctx) {
           await ctx.nodePool.reload();
         } catch (err) {
           problems.push(`节点池刷新失败: ${err.message}`);
+        }
+      }
+      // 3.6 刷新抓取来源内存（导入写入了 sources.json：源+源状态完整恢复）
+      if (ctx.sources && typeof ctx.sources.reload === 'function') {
+        try {
+          await ctx.sources.reload();
+        } catch (err) {
+          problems.push(`抓取来源刷新失败: ${err.message}`);
         }
       }
 

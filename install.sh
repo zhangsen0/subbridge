@@ -46,6 +46,7 @@ SubBridge 一键部署与运维脚本
   bash install.sh update           更新代码到最新版并重启（git pull + 装依赖）
   bash install.sh doctor           环境自检（Node/依赖/端口/配置/数据/服务/日志）
   bash install.sh backup           导出数据备份（含节点池，JSON 文件）
+  bash install.sh storage [驱动]    查看/一键切换存储驱动（file|sqlite，自动备份迁移数据）
   bash install.sh help             显示本帮助
 
 【环境变量】（与参数等价，优先读取）
@@ -278,6 +279,78 @@ service_cmd() {
         fail "备份失败，请确认服务运行与令牌正确。"
       fi
       ;;
+    storage|db)
+      # 一键切换存储驱动（file ↔ sqlite），自动备份 → 切换 → 重启 → 恢复数据 → 验证
+      # 用法：bash install.sh storage [file|sqlite]（不带参数则显示当前驱动）
+      load_env
+      local want="${2:-}"
+      local cur="$(grep -oE '^SUBBRIDGE_STORAGE_DRIVER=(.*)$' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tail -1)"
+      cur="${cur:-file}"
+      if [[ -z "$want" ]]; then
+        log "当前存储驱动：${cur}（切换用法：bash install.sh storage file|sqlite）"
+        return 0
+      fi
+      [[ "$want" != "file" && "$want" != "sqlite" ]] && fail "未知驱动：${want}（可选 file / sqlite）"
+      if [[ "$want" == "$cur" ]]; then
+        log "已是 ${want} 驱动，无需切换"
+        return 0
+      fi
+      local token="${SUBBRIDGE_API_TOKEN:-}"
+      [[ -z "$token" ]] && fail "未找到 SUBBRIDGE_API_TOKEN，请在 .env 中配置（切换需要调用备份/恢复接口迁移数据）。"
+      # 1. 健康检查
+      curl -s -m 5 "http://127.0.0.1:${PORT}/ping" >/dev/null 2>&1 || fail "服务未运行，请先启动（bash install.sh start）。"
+      # 2. 备份当前数据
+      local bak="$INSTALL_DIR/subbridge-migrate-backup.json"
+      curl -s -m 30 -H "X-API-Token: ${token}" "http://127.0.0.1:${PORT}/api/backup" -o "$bak"
+      if ! head -c 1 "$bak" | grep -q '{' 2>/dev/null; then
+        rm -f "$bak"
+        fail "备份失败，切换已中止。"
+      fi
+      log "已备份当前数据（$(du -h "$bak" | cut -f1)）"
+      # 3. 切换配置（.env 的 SUBBRIDGE_STORAGE_DRIVER；file 为默认，删除该行即回退）
+      if [[ "$want" == "sqlite" ]]; then
+        if grep -q '^SUBBRIDGE_STORAGE_DRIVER=' "$INSTALL_DIR/.env" 2>/dev/null; then
+          sed -i 's/^SUBBRIDGE_STORAGE_DRIVER=.*/SUBBRIDGE_STORAGE_DRIVER=sqlite/' "$INSTALL_DIR/.env"
+        else
+          echo 'SUBBRIDGE_STORAGE_DRIVER=sqlite' >> "$INSTALL_DIR/.env"
+        fi
+      else
+        sed -i '/^SUBBRIDGE_STORAGE_DRIVER=/d' "$INSTALL_DIR/.env"
+      fi
+      log "存储驱动配置已切换为 ${want}"
+      # 4. 重启服务
+      if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files subbridge.service >/dev/null 2>&1; then
+        systemctl restart subbridge
+      else
+        [[ -f "$INSTALL_DIR/.subbridge.pid" ]] && kill "$(cat "$INSTALL_DIR/.subbridge.pid")" 2>/dev/null || true
+        sleep 1
+        local node_bin
+        node_bin="$(command -v node)"
+        [[ -x "$INSTALL_DIR/runtime/bin/node" ]] && node_bin="$INSTALL_DIR/runtime/bin/node"
+        cd "$INSTALL_DIR"
+        nohup env "$(grep -v '^#' .env 2>/dev/null | xargs)" "${node_bin}" app.js > app.log 2>&1 &
+        echo $! > "$INSTALL_DIR/.subbridge.pid"
+        disown || true
+      fi
+      sleep 5
+      curl -s -m 8 "http://127.0.0.1:${PORT}/ping" >/dev/null 2>&1 || fail "重启后健康检查失败，请用 bash install.sh logs 排查。"
+      # 5. 恢复数据（写入新驱动）
+      curl -s -m 60 -X POST -H "Content-Type: application/json" -H "X-API-Token: ${token}" \
+        -d @"$bak" "http://127.0.0.1:${PORT}/api/restore" >/dev/null
+      log "数据已恢复到 ${want} 驱动"
+      # 6. 验证
+      local total
+      total="$(curl -s -m 10 -H "X-API-Token: ${token}" "http://127.0.0.1:${PORT}/api/pool?page=1&pageSize=1" | grep -oE '"total":[0-9]+' | head -1 | cut -d: -f2)"
+      if [[ "$want" == "sqlite" ]]; then
+        [[ -f "$INSTALL_DIR/data/subbridge.sqlite" ]] && log "SQLite 数据库文件已生成：$INSTALL_DIR/data/subbridge.sqlite"
+      fi
+      if [[ -n "$total" && "$total" != "0" ]]; then
+        log "切换完成：存储驱动=${want}，节点池=${total} 个节点，源与配置均已迁移"
+        rm -f "$bak"
+      else
+        warn "切换完成但节点池为空，请检查恢复结果（bash install.sh logs）"
+      fi
+      ;;
     help|-h|--help) usage ;;
     *) warn "未知运维命令：$cmd"; usage; exit 1 ;;
   esac
@@ -287,7 +360,7 @@ service_cmd() {
 # 若第一个参数是运维命令（restart/start/stop/status/logs/update/doctor/backup/help），走运维分支
 OPS_CMD="${1:-}"
 case "$OPS_CMD" in
-  restart|start|stop|status|logs|update|doctor|backup|help|-h|--help)
+  restart|start|stop|status|logs|update|doctor|backup|storage|db|help|-h|--help)
     service_cmd "$@"
     exit 0
     ;;

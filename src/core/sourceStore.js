@@ -27,14 +27,26 @@ class SourceStore {
     this.config = config;
     this.onUpdateConfig = onUpdateConfig || (async () => {});
     this.state = { version: 1, sources: [] };
-    this._load();
+    // 异步加载磁盘数据（readDataFile 经存储层；FileStore 同步读盘微任务内即完成）
+    // 写操作（add/update/remove/recordResult）前 await _ready，避免加载结果覆盖并发写入
+    this._ready = this._load().catch((err) => console.error('[sourceStore] 加载失败:', err.message));
+  }
+
+  /** 等待构造期加载完成（写操作前置） */
+  async _ensureReady() {
+    await this._ready;
+  }
+
+  /** 数据加载完成（磁盘读取 + 旧配置并入），供外部读取前等待 */
+  async ready() {
+    await this._ready;
   }
 
   /** 读取数据文件并合并配置中的 extra_sources */
-  _load() {
+  async _load() {
     let disk = null;
     try {
-      const raw = this.store.readDataFile('sources.json');
+      const raw = await this.store.readDataFile('sources.json');
       if (raw) disk = JSON.parse(raw);
     } catch {
       disk = null;
@@ -64,7 +76,7 @@ class SourceStore {
   /** 持久化到数据文件，并同步写回配置 extra_sources */
   async _save() {
     try {
-      this.store.writeDataFile('sources.json', JSON.stringify(this.state, null, 2));
+      await this.store.writeDataFile('sources.json', JSON.stringify(this.state, null, 2));
     } catch (err) {
       // 写盘失败不阻断内存操作（下次保存再试）
       console.error('[sourceStore] 写盘失败:', err.message);
@@ -84,8 +96,15 @@ class SourceStore {
       .sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.url).localeCompare(String(b.url)));
   }
 
+  /** 从磁盘重新加载（备份导入写入了 sources.json 后调用，恢复源+源状态） */
+  async reload() {
+    await this._load();
+    return this.state.sources.length;
+  }
+
   /** 新增来源（url 去重） */
   async add({ url, note = '', enabled = true, auto = true }) {
+    await this._ensureReady();
     const u = String(url || '').trim();
     if (!u) throw new Error('来源链接不能为空');
     if (this.state.sources.some((s) => s.url === u)) throw new Error('该来源已存在');
@@ -104,6 +123,7 @@ class SourceStore {
 
   /** 批量添加（urls 数组：字符串或 {url, note?}；重复自动跳过） */
   async addMany(urls, opts = {}) {
+    await this._ensureReady();
     const note = String(opts.note || '').trim();
     const added = [];
     const seen = new Set(this.state.sources.map((s) => s.url));
@@ -129,6 +149,7 @@ class SourceStore {
 
   /** 更新来源字段（id 必填；url 重复校验） */
   async update(id, patch) {
+    await this._ensureReady();
     const item = this.state.sources.find((s) => s.id === id);
     if (!item) throw new Error('来源不存在');
     if (patch.url !== undefined) {
@@ -146,6 +167,7 @@ class SourceStore {
 
   /** 删除来源 */
   async remove(id) {
+    await this._ensureReady();
     const idx = this.state.sources.findIndex((s) => s.id === id);
     if (idx < 0) throw new Error('来源不存在');
     this.state.sources.splice(idx, 1);
@@ -155,6 +177,7 @@ class SourceStore {
 
   /** 记录一次抓取结果（供手动/自动采集回写） */
   async recordResult(id, { ok, nodes, error }) {
+    await this._ensureReady();
     const item = this.state.sources.find((s) => s.id === id);
     if (!item) return;
     item.lastAt = new Date().toISOString();
