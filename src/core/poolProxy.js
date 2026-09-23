@@ -17,20 +17,47 @@
 
 const { startBridge, isSupportedProxyType, unsupportedReason } = require('./proxyBridge');
 const net = require('node:net');
+const dns = require('node:dns');
+
+/**
+ * 带超时的 DNS 解析：避免域名节点（如 fbi.gov）解析挂起导致选代理卡死。
+ * @param {string} server 服务器地址
+ * @param {number} timeoutMs 解析超时（毫秒）
+ * @returns {Promise<string|null>} IP 地址；解析失败/超时返回 null
+ */
+function resolveHost(server, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      resolve(null);
+    }, timeoutMs);
+    dns.lookup(server, (err, addr) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(err ? null : addr);
+    });
+  });
+}
 
 /**
  * TCP 快速测速：测量到代理端口的建连延迟（毫秒），失败返回 null。
- * 纯 TCP 握手，不依赖具体代理协议，毫秒级完成。
+ * 纯 TCP 握手，不依赖具体代理协议；DNS 解析与 TCP 连接各带独立超时，
+ * 任何阶段挂起都会在 timeoutMs 内返回，保证选代理流程不被卡死。
  * @param {string} server 代理服务器地址
  * @param {number} port 代理端口
  * @param {number} timeoutMs 超时（毫秒）
  * @returns {Promise<number|null>} 延迟毫秒；连接失败/超时返回 null
  */
-function tcpLatency(server, port, timeoutMs) {
+async function tcpLatency(server, port, timeoutMs) {
+  const host = /^\d+(\.\d+){3}$/.test(server) ? server : await resolveHost(server, timeoutMs);
+  if (!host) return null;
   return new Promise((resolve) => {
     const start = Date.now();
     let done = false;
-    const sock = net.connect({ host: server, port, timeout: timeoutMs });
+    const sock = net.connect({ host, port, timeout: timeoutMs });
     const finish = (val) => {
       if (done) return;
       done = true;
@@ -54,11 +81,19 @@ function tcpLatency(server, port, timeoutMs) {
  * @returns {Promise<null|{url: string, node: object, skipped: string[]}>}
  *   返回上游代理 URL（http/https/socks/ss/trojan/vless 均可）、选中节点与跳过原因
  */
-async function pickProxyFromPool(nodePool, {
+/**
+ * 从节点池挑选多个可用抓取代理（一次并发建桥，供抓取任务复用）
+ * @param {object} nodePool 节点池实例
+ * @param {number} count 需要的代理数量
+ * @param {object} opts 同 pickProxyFromPool 的选项
+ * @returns {Promise<Array<{url: string, node: object}>>} 代理列表（可能少于 count）
+ */
+async function pickProxiesFromPool(nodePool, count = 1, {
   types, ttlMs, skipLocalnode = false,
   tcpProbe = true, tcpProbeTimeoutMs = 3000, tcpProbeConcurrency = 6, maxLatencyMs = 0,
+  maxProbeNodes = 12,
 } = {}) {
-  if (!nodePool) return { url: null, node: null, skipped: [] };
+  if (!nodePool || !(Number(count) > 0)) return [];
   const wanted = Array.isArray(types) && types.length
     ? types.map((t) => String(t).toLowerCase()).filter(Boolean)
     : ['http', 'socks5', 'socks4', 'ss', 'trojan', 'vless'];
@@ -71,24 +106,39 @@ async function pickProxyFromPool(nodePool, {
       // 默认排除本机节点：本机节点出口=本机网络，抓境外源用它中转依然连不通
       !(skipLocalnode && n.source === 'localnode'),
   );
-  if (!candidates.length) return { url: null, node: null, skipped: [] };
+  if (!candidates.length) return [];
 
-  // 第一层：TCP 快速测速（保证抓取代理的网速）——并发测速，过滤不可达与超延迟
+  // 先按已有探测数据排序：可用优先 → 延迟升序 → 更新时间新的优先（保证测速/建桥从最可能的节点开始）
+  const probeOrder = (a, b) => {
+    const pa = a.probe;
+    const pb = b.probe;
+    const aa = pa && pa.alive ? 1 : 0;
+    const ab = pb && pb.alive ? 1 : 0;
+    if (aa !== ab) return ab - aa;
+    const la = pa && pa.latencyMs != null ? pa.latencyMs : Number.POSITIVE_INFINITY;
+    const lb = pb && pb.latencyMs != null ? pb.latencyMs : Number.POSITIVE_INFINITY;
+    if (la !== lb) return la - lb;
+    return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  };
+  candidates.sort(probeOrder);
+
+  // 第一层：TCP 快速测速（保证抓取代理的网速）——只测排序后前 N 个候选（池可能上万，全量测速会卡死）
   if (tcpProbe) {
     const concurrency = Math.max(1, Math.min(Number(tcpProbeConcurrency) || 6, 20));
     const timeoutMs = Math.max(500, Number(tcpProbeTimeoutMs) || 3000);
     const maxLatency = Number(maxLatencyMs) > 0 ? Number(maxLatencyMs) : 0;
+    const probeSet = candidates.slice(0, Math.max(1, Math.min(Number(maxProbeNodes) || 12, candidates.length)));
     const measured = new Map();
     let idx = 0;
     async function worker() {
-      while (idx < candidates.length) {
-        const node = candidates[idx++];
+      while (idx < probeSet.length) {
+        const node = probeSet[idx++];
         const lat = await tcpLatency(node.server, node.port, timeoutMs);
         measured.set(node, lat);
       }
     }
-    await Promise.all(Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()));
-    const alive = candidates.filter((n) => {
+    await Promise.all(Array.from({ length: Math.min(concurrency, probeSet.length) }, () => worker()));
+    const alive = probeSet.filter((n) => {
       const lat = measured.get(n);
       return lat != null && (maxLatency === 0 || lat <= maxLatency);
     });
@@ -97,38 +147,58 @@ async function pickProxyFromPool(nodePool, {
       candidates.length = 0;
       candidates.push(...alive);
     }
-  } else {
-    // 未开 TCP 测速：按已有探测数据排序（alive 优先 → 延迟升序 → 更新新的优先）
-    candidates.sort((a, b) => {
-      const pa = a.probe;
-      const pb = b.probe;
-      const aa = pa && pa.alive ? 1 : 0;
-      const ab = pb && pb.alive ? 1 : 0;
-      if (aa !== ab) return ab - aa;
-      const la = pa && pa.latencyMs != null ? pa.latencyMs : Number.POSITIVE_INFINITY;
-      const lb = pb && pb.latencyMs != null ? pb.latencyMs : Number.POSITIVE_INFINITY;
-      if (la !== lb) return la - lb;
-      return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-    });
+    // 前 N 个全不通时保留原排序继续建桥尝试（不再全池测速，避免卡死）
   }
 
+  // 直连代理类型优先（http/https/socks5/socks4 无需协议桥，建桥零成本）；桥接类型（ss/trojan/vless/hysteria 等）靠后
+  const directFirst = (a, b) => {
+    const rank = (t) => (['http', 'https', 'socks5', 'socks4'].includes(String(t).toLowerCase()) ? 0 : 1);
+    return rank(a.type) - rank(b.type);
+  };
+  const ordered = candidates.slice().sort(directFirst);
+  const wantCount = Math.max(1, Math.min(Number(count) || 1, ordered.length));
+  const results = [];
   const skipped = [];
-  for (const node of candidates) {
+  // 并发建桥前 wantCount 个：一次选出多个可用代理，避免串行建桥卡死
+  await Promise.all(ordered.slice(0, wantCount).map(async (node) => {
     if (!isSupportedProxyType(node.type)) {
       skipped.push(`${node.type}://${node.server}:${node.port}（${unsupportedReason(node)}）`);
-      continue;
+      return;
     }
     try {
       const bridge = await startBridge(node, { ttlMs });
-      if (bridge && bridge.url) {
-        return { url: bridge.url, node, skipped };
-      }
-      skipped.push(`${node.type}://${node.server}:${node.port}（${unsupportedReason(node)}）`);
+      if (bridge && bridge.url) results.push({ url: bridge.url, node });
+      else skipped.push(`${node.type}://${node.server}:${node.port}（${unsupportedReason(node)}）`);
     } catch (err) {
       skipped.push(`${node.type}://${node.server}:${node.port}（桥创建失败: ${err.message}）`);
     }
+  }));
+  // 失败不足时，继续并发尝试更多候选（直连类型优先顺序），最多两轮，避免串行建桥卡死
+  if (results.length < wantCount && ordered.length > wantCount) {
+    const rest = ordered.slice(wantCount).filter((n) => isSupportedProxyType(n.type));
+    const batch = rest.slice(0, wantCount * 2);
+    await Promise.all(batch.map(async (node) => {
+      if (results.length >= wantCount) return;
+      try {
+        const bridge = await startBridge(node, { ttlMs });
+        if (bridge && bridge.url) results.push({ url: bridge.url, node });
+      } catch { /* 单个桥失败继续下一个 */ }
+    }));
   }
-  return { url: null, node: null, skipped };
+  return results;
 }
 
-module.exports = { pickProxyFromPool, tcpLatency };
+async function pickProxyFromPool(nodePool, {
+  types, ttlMs, skipLocalnode = false,
+  tcpProbe = true, tcpProbeTimeoutMs = 3000, tcpProbeConcurrency = 6, maxLatencyMs = 0,
+  maxBridgeTry = 3, maxProbeNodes = 12,
+} = {}) {
+  // 兼容旧接口：最多试前 maxBridgeTry 个候选，返回第一个可用
+  const picked = await pickProxiesFromPool(nodePool, maxBridgeTry, {
+    types, ttlMs, skipLocalnode, tcpProbe, tcpProbeTimeoutMs, tcpProbeConcurrency, maxLatencyMs, maxProbeNodes,
+  });
+  if (picked.length) return { url: picked[0].url, node: picked[0].node, skipped: [] };
+  return { url: null, node: null, skipped: [] };
+}
+
+module.exports = { pickProxyFromPool, pickProxiesFromPool, tcpLatency };

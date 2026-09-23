@@ -41,13 +41,13 @@ function registerSourceApi(app, ctx) {
   }
 
   /** 抓取并入库（手动/自动共用），返回统计 */
-  async function grabSources(urls, { probe = false } = {}) {
+  async function grabSources(urls, { probe = false, proxyUrl } = {}) {
     const grabCfg = (ctx.config && ctx.config.grab) || {};
     // 抓取后自动测速：手动 probe 或配置 grab.auto_probe 开启（手动/自动/定时采集共用）
     const autoProbe = probe === true || grabCfg.auto_probe === true;
     // 抓取阶段不同步测速（提速）：测速统一走后台异步（不阻塞抓取循环与 API 响应）
     const opts = buildOptions({ probe: '0' }, ctx.config);
-    const result = await buildConverted(urls, opts, ctx);
+    const result = await buildConverted(urls, opts, ctx, { proxyUrl });
     // 抓取后自动测速（后台异步）：测速写回节点池，按配置自动删除不可用节点
     if (autoProbe) scheduleAsyncProbe(result.nodes);
     // 按配置清理本次已测不可用节点（原逻辑保留）
@@ -111,24 +111,66 @@ function registerSourceApi(app, ctx) {
     });
   }
 
-  /** 抓取单个源并回写状态 */
-  async function grabOne(item, { probe = false }) {
+  /** 抓取单个源并回写状态；proxyUrls 为预选代理列表（失败换下一个，全部失败可再现场重选） */
+  async function grabOne(item, { probe = false, proxyUrls = [] } = {}) {
+    const tries = proxyUrls.length ? proxyUrls : [undefined];
+    let lastErr = null;
+    for (const proxyUrl of tries) {
+      try {
+        const result = await grabSources([item.url], { probe, proxyUrl });
+        const added = result.poolStats ? result.poolStats.added : 0;
+        const updated = result.poolStats ? result.poolStats.updated : 0;
+        await ctx.sources.recordResult(item.id, {
+          ok: true, nodes: result.nodes.length,
+          removed: result.removedUnreachable || 0,
+        });
+        return {
+          id: item.id, url: item.url, ok: true,
+          parsed: result.nodes.length, added, updated,
+          removedUnreachable: result.removedUnreachable || 0,
+          proxyUsed: proxyUrl || (result.proxyUsedLabel || ''),
+        };
+      } catch (err) {
+        lastErr = err;
+        await ctx.sources.recordResult(item.id, { ok: false, nodes: 0, error: err.message });
+      }
+    }
+    return { id: item.id, url: item.url, ok: false, error: lastErr ? lastErr.message : '抓取失败' };
+  }
+
+  /** 抓取任务开始时预选抓取代理（复用，不再每源现场选）；预选数 grab.proxy_pool_size 可配置 */
+  async function preSelectProxies() {
+    const grabCfg = (ctx.config && ctx.config.grab) || {};
+    const fetcher = (ctx.config && ctx.config.fetcher) || {};
+    const want = Math.max(0, Number(grabCfg.proxy_pool_size) || 0);
+    if (want < 1 || fetcher.proxy_from_pool === false || !ctx.nodePool) return [];
+    // 选代理总超时保护：任何异常/挂起都在 grab.proxy_select_timeout_ms 内返回空，继续抓取
+    const totalTimeout = Math.max(1000, Number(grabCfg.proxy_select_timeout_ms) || 60000);
     try {
-      const result = await grabSources([item.url], { probe });
-      const added = result.poolStats ? result.poolStats.added : 0;
-      const updated = result.poolStats ? result.poolStats.updated : 0;
-      await ctx.sources.recordResult(item.id, {
-        ok: true, nodes: result.nodes.length,
-        removed: result.removedUnreachable || 0,
+      const { pickProxiesFromPool } = require('../core/poolProxy');
+      const types = Array.isArray(fetcher.proxy_pool_types) && fetcher.proxy_pool_types.length
+        ? fetcher.proxy_pool_types
+        : ['http', 'socks5', 'socks4', 'ss', 'trojan', 'vless'];
+      const ttlMs = Number(fetcher.proxy_bridge_ttl_seconds || 300) * 1000;
+      const pick = pickProxiesFromPool(ctx.nodePool, want, {
+        types,
+        ttlMs,
+        skipLocalnode: fetcher.pool_proxy_skip_localnode !== false,
+        tcpProbe: fetcher.proxy_tcp_probe !== false,
+        tcpProbeTimeoutMs: Number(fetcher.proxy_tcp_probe_timeout_ms || 3000),
+        tcpProbeConcurrency: Number(fetcher.proxy_tcp_probe_concurrency || 6),
+        maxLatencyMs: Number(fetcher.proxy_max_latency_ms || 0),
+        maxProbeNodes: Number(fetcher.proxy_tcp_probe_max_nodes || 12),
       });
-      return {
-        id: item.id, url: item.url, ok: true,
-        parsed: result.nodes.length, added, updated,
-        removedUnreachable: result.removedUnreachable || 0,
-      };
-    } catch (err) {
-      await ctx.sources.recordResult(item.id, { ok: false, nodes: 0, error: err.message });
-      return { id: item.id, url: item.url, ok: false, error: err.message };
+      // 与总超时赛跑：超时则放弃预选（返回空，抓取走直连/现场重选）
+      const winner = await Promise.race([
+        pick,
+        new Promise((resolve) => setTimeout(() => resolve(null), totalTimeout)),
+      ]);
+      if (!winner) return [];
+      return winner.map((p) => p.url);
+    } catch {
+      return [];
     }
   }
 
@@ -208,6 +250,11 @@ function registerSourceApi(app, ctx) {
       ? ctx.taskManager.start({ type: 'grab', title: `批量抓取来源 ${items.length} 个`, total: items.length })
       : null;
     grabTask = (async () => {
+      // 任务开始：并发预选抓取代理（复用，不每源重选）；预选代理全失败时现场重选
+      const preProxies = await preSelectProxies();
+      if (preProxies.length) {
+        ctx.fetchLog.record({ type: 'grab', kind: 'proxy', url: `已预选 ${preProxies.length} 个抓取代理（复用）`, error: '' });
+      }
       // 并发抓取（grab.concurrency 配置化，默认 5）：提速且可控，避免长时间串行排队
       const concurrency = Math.max(1, Number((ctx.config.grab || {}).concurrency) || 5);
       const results = new Array(items.length);
@@ -219,12 +266,35 @@ function registerSourceApi(app, ctx) {
         const fail = results.filter((r) => r && !r.ok).length;
         ctx.taskManager.progress(task.id, { done, ok, fail });
       };
+      // 每源代理分配：轮询预选代理；预选为空时尝试现场重选（一次）
+      const reselectOnce = (() => {
+        let done = false;
+        return async () => {
+          if (done) return [];
+          done = true;
+          return preSelectProxies();
+        };
+      })();
       const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
         while (queue.length) {
           const { item, i } = queue.shift();
           done += 1;
           try {
-            results[i] = await grabOne(item, { probe });
+            let proxies = preProxies.length ? [preProxies[i % preProxies.length]] : [];
+            results[i] = await grabOne(item, { probe, proxyUrls: proxies });
+            // 预选代理抓取失败：换其他预选代理重试；全失败再现场重选一次
+            if (!results[i].ok && preProxies.length > 1) {
+              const others = preProxies.filter((_, k) => k !== (i % preProxies.length));
+              const retry = await grabOne(item, { probe, proxyUrls: others });
+              if (retry.ok) results[i] = retry;
+            }
+            if (!results[i].ok) {
+              const reselected = await reselectOnce();
+              if (reselected.length) {
+                const again = await grabOne(item, { probe, proxyUrls: reselected });
+                if (again.ok) results[i] = again;
+              }
+            }
           } catch (err) {
             results[i] = { id: item.id, url: item.url, ok: false, error: err.message };
           }

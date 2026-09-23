@@ -71,9 +71,16 @@ function buildOptions(query, config) {
  *   3. 启用"自中继采集"时，本机 HTTP 代理节点作为主候选（本机中转也属本地优先）
  *   4. fetcher.pool_empty_fallback_direct 为 false 时：节点池无可用代理则直接失败（不直连）
  */
-async function effectiveFetcherConfig(config, ctx) {
+async function effectiveFetcherConfig(config, ctx, { proxyUrl } = {}) {
   const fetcher = (config.fetcher || {});
   const result = { ...fetcher };
+
+  // 0. 预选代理直用（抓取任务开始已选好代理，跳过现场选代理，大幅提速）
+  if (proxyUrl) {
+    result.fallback_proxy = proxyUrl;
+    delete result.upstream_proxy;
+    return result;
+  }
 
   // 1. 显式配置的上游代理优先（不再叠加回退链，用户指定即最高优先）
   if (fetcher.upstream_proxy) {
@@ -99,6 +106,8 @@ async function effectiveFetcherConfig(config, ctx) {
         tcpProbeTimeoutMs: Number(fetcher.proxy_tcp_probe_timeout_ms || 3000),
         tcpProbeConcurrency: Number(fetcher.proxy_tcp_probe_concurrency || 6),
         maxLatencyMs: Number(fetcher.proxy_max_latency_ms || 0),
+        maxBridgeTry: Number(fetcher.proxy_bridge_max_try || 3),
+        maxProbeNodes: Number(fetcher.proxy_tcp_probe_max_nodes || 12),
       });
       if (picked && picked.url) {
         result.fallback_proxy = picked.url;
@@ -196,7 +205,7 @@ async function applyProbe(nodes, config, warnings, ctx) {
  * @param {{extraNodes?: Array}} [options] extraNodes：预置节点（如 /sub 合并节点池），在抓取结果之后并入
  * @returns {Promise<{output: string, warnings: string[], nodes: Array}>}
  */
-async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
+async function buildConverted(urls, opts, ctx, { extraNodes = [], proxyUrl } = {}) {
   const config = ctx.config;
   const warnings = [];
   const nodes = [];
@@ -204,8 +213,8 @@ async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
   let poolStats = null;
 
   if (urls.length) {
-    // 1. 抓取并解析（上游代理优先：显式配置 → 节点池挑选 → 本机节点自中继）
-    const fetcherCfg = await effectiveFetcherConfig(config, ctx);
+    // 1. 抓取并解析（上游代理优先：预选代理 → 显式配置 → 节点池挑选 → 本机节点自中继）
+    const fetcherCfg = await effectiveFetcherConfig(config, ctx, { proxyUrl });
     // 请求级自定义头（?headers=JSON）覆盖全局配置 fetcher.headers
     if (opts.headers) {
       try {
