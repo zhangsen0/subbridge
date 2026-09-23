@@ -620,6 +620,54 @@ function initPool() {
     }
   });
 
+  // 手工添加节点（面板展开/收起）
+  $('btn-pool-add').addEventListener('click', () => {
+    const panel = $('pool-add-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  });
+  $('btn-add-node-cancel').addEventListener('click', () => { $('pool-add-panel').style.display = 'none'; });
+  $('btn-add-node-submit').addEventListener('click', async () => {
+    const btn = $('btn-add-node-submit');
+    const links = $('add-node-links').value.trim();
+    const manual = {};
+    const server = $('add-node-server').value.trim();
+    const port = $('add-node-port').value.trim();
+    if (server && port) {
+      manual.type = $('add-node-type').value;
+      manual.server = server;
+      manual.port = Number(port);
+      manual.name = $('add-node-name').value.trim();
+      const secret = $('add-node-secret').value.trim();
+      if (manual.type === 'vless' || manual.type === 'vmess') manual.uuid = secret;
+      else if (manual.type === 'ss') { manual.password = secret; if (!$('add-node-name').value.trim()) manual.name = $('add-node-name').value.trim(); }
+      else manual.password = secret;
+      manual.sni = $('add-node-sni').value.trim();
+      manual.wsPath = $('add-node-wspath').value.trim();
+      manual.wsHost = $('add-node-wshost').value.trim();
+      manual.tls = $('add-node-tls').checked;
+      manual.network = manual.wsPath ? 'ws' : '';
+    }
+    const body = {};
+    if (links) body.links = links;
+    if (server && port) body.node = manual;
+    if (!links && !(server && port)) { toast('请粘贴节点链接或填写服务器/端口', true); return; }
+    btn.textContent = '添加中...';
+    btn.disabled = true;
+    try {
+      const d = await apiJson('/api/pool/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      toast(`已添加：解析 ${d.parsed} 个（新增 ${d.added} / 更新 ${d.updated}）`);
+      if (d.problems && d.problems.length) toast('部分条目无法识别：' + d.problems[0].slice(0, 80), true);
+      loadPool();
+      loadDashboard();
+      if (currentRole === 'admin') loadLogs(true);
+    } catch (err) {
+      toast('添加失败：' + err.message, true);
+    } finally {
+      btn.textContent = '加入节点池';
+      btn.disabled = false;
+    }
+  });
+
   // 一键：测速并自动过滤（停用不可用节点）
   $('btn-pool-filter').addEventListener('click', async () => {
     const btn = $('btn-pool-filter');

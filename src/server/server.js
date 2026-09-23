@@ -86,11 +86,20 @@ function createServer(config) {
     try {
       if (lc.enabled && lc.inject_into_subscription && lc.auto_join_pool !== false) {
         const lns = await localnode.localNodes();
-        if (lns.length) {
-          const { added, updated } = await ctx.nodePool.upsert(lns, { source: 'localnode' });
-          app.log.info(`本机节点已同步入节点池（新增 ${added} / 更新 ${updated}）`);
-          return;
+        const { nodeKey } = require('../core/nodePool');
+        const currentKeys = new Set(lns.map((n) => nodeKey(n)));
+        const { added, updated } = await ctx.nodePool.upsert(lns, { source: 'localnode' });
+        // 池中来源为 localnode、但本次不再暴露的节点（如端口改 0 / 协议关闭）自动移除，避免输出不可达节点
+        const pool = await ctx.nodePool.list();
+        const staleKeys = pool
+          .filter((n) => n.source === 'localnode' && !currentKeys.has(n.key))
+          .map((n) => n.key);
+        if (staleKeys.length) {
+          await ctx.nodePool.remove(staleKeys);
+          app.log.info(`本机节点变更，已从节点池移除 ${staleKeys.length} 个不再暴露的节点`);
         }
+        app.log.info(`本机节点已同步入节点池（新增 ${added} / 更新 ${updated}）`);
+        return;
       }
       // 本机节点不可用时，清理池中来源为 localnode 的残留节点
       const pool = await ctx.nodePool.list();

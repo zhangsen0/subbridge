@@ -145,6 +145,61 @@ function registerPoolApi(app, ctx) {
     return { ok: true, ...c };
   });
 
+  // 手工添加节点（节点池直接入库）：links=粘贴节点链接（自动识别协议）或 node=手动字段对象
+  app.post('/api/pool/add', async (req, reply) => {
+    const body = req.body || {};
+    const { parseSubscription } = require('../parsers');
+    const nodes = [];
+    const problems = [];
+
+    // 方式一：粘贴节点链接（一行一个，自动识别 ss/ssr/vmess/vless/trojan/hysteria/hysteria2/tuic 等）
+    const links = Array.isArray(body.links) ? body.links.join('\n') : String(body.links || '');
+    if (links.trim()) {
+      const { nodes: parsed } = parseSubscription(links);
+      for (const n of parsed) {
+        if (n && n.server && n.port) nodes.push(n);
+        else problems.push(`跳过无法识别的条目: ${String(n && n.raw || '').slice(0, 60)}`);
+      }
+    }
+
+    // 方式二：手动填写节点字段
+    if (body.node && typeof body.node === 'object') {
+      const m = body.node;
+      if (!m.type || !m.server || !m.port) {
+        problems.push('手动节点必须填写：协议类型(type)、服务器(server)、端口(port)');
+      } else {
+        nodes.push({
+          name: String(m.name || `${m.server}:${m.port}`).trim(),
+          type: String(m.type).toLowerCase(),
+          server: String(m.server),
+          port: Number(m.port),
+          uuid: m.uuid || '',
+          password: m.password || '',
+          cipher: m.cipher || '',
+          // trojan/hysteria2/hysteria/tuic 等协议默认走 TLS（除非显式关闭）
+          tls: ['trojan', 'hysteria2', 'hysteria', 'tuic'].includes(String(m.type).toLowerCase())
+            ? (m.tls !== false && m.tls !== 'false')
+            : (m.tls === true || m.tls === 'true'),
+          sni: m.sni || '',
+          network: m.network || '',
+          wsPath: m.wsPath || '',
+          wsHost: m.wsHost || '',
+          fingerprint: m.fingerprint || '',
+          flow: m.flow || '',
+          udp: m.udp !== false,
+          raw: '',
+        });
+      }
+    }
+
+    if (!nodes.length) {
+      return reply.code(400).send({ error: problems[0] || '请粘贴节点链接或填写节点字段' });
+    }
+    const { added, updated } = await ctx.nodePool.upsert(nodes, { source: body.source || '手工添加' });
+    ctx.fetchLog.record({ type: 'pool', kind: 'add', url: '手工添加节点', nodes: nodes.length, error: '' });
+    return { ok: true, parsed: nodes.length, added, updated, problems };
+  });
+
   // 一键：测速并自动过滤（停用不可用节点；未测节点默认保留）
   // 判定标准：不可用 = 探测失败（alive=false）或延迟超过 pool.filter_max_latency_ms（默认 1000ms）
   app.post('/api/pool/filter', async (req, reply) => {

@@ -189,7 +189,29 @@
               <button type="button" class="btn small" id="btn-pool-probe">测速</button>
               <button type="button" class="btn primary small admin-only hidden" id="btn-pool-filter" data-mode="advanced">⚡测速并自动过滤</button>
               <button type="button" class="btn danger small admin-only hidden" id="btn-pool-prune" data-mode="advanced">🗑删除不可用节点</button>
+              <button type="button" class="btn small admin-only hidden" id="btn-pool-add" data-mode="advanced">＋添加节点</button>
               <button type="button" class="btn ghost small admin-only hidden" id="btn-pool-clear" data-mode="advanced">清空</button>
+            </div>
+          </div>
+          <div class="card add-node-panel admin-only hidden" id="pool-add-panel" data-mode="advanced" style="margin-top:12px;display:none">
+            <h4>手工添加节点</h4>
+            <p class="hint">方式一：粘贴节点链接（ss:// ssr:// vmess:// vless:// trojan:// hysteria:// hysteria2:// tuic://，每行一个，自动识别协议）</p>
+            <textarea id="add-node-links" rows="4" spellcheck="false" placeholder="vless://...\ntrojan://..."></textarea>
+            <p class="hint">方式二：手动填写字段（留空则只用方式一）</p>
+            <div class="add-node-grid">
+              <input id="add-node-name" placeholder="名称（留空自动生成）" data-kind="text">
+              <select id="add-node-type"><option value="vless">vless</option><option value="vmess">vmess</option><option value="ss">ss</option><option value="ssr">ssr</option><option value="trojan">trojan</option><option value="hysteria2">hysteria2</option><option value="tuic">tuic</option></select>
+              <input id="add-node-server" placeholder="服务器地址 *">
+              <input id="add-node-port" placeholder="端口 *" type="number">
+              <input id="add-node-secret" placeholder="uuid / 密码（按协议）">
+              <input id="add-node-sni" placeholder="SNI / 回源域名（tls 时）">
+              <input id="add-node-wspath" placeholder="ws 路径（如 /）">
+              <input id="add-node-wshost" placeholder="ws Host 头">
+              <label class="toggle-line"><input type="checkbox" id="add-node-tls" checked> TLS</label>
+            </div>
+            <div class="actions">
+              <button type="button" class="btn primary" id="btn-add-node-submit">加入节点池</button>
+              <button type="button" class="btn ghost" id="btn-add-node-cancel">收起</button>
             </div>
           </div>
           <div class="table-wrap">
