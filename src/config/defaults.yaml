@@ -203,14 +203,20 @@ probe:
   # 是否对 http/socks5 节点做真实下载测速（其余协议仅做 TCP 连通性检测）
   speed_test: false
   # 测速下载地址
-  speed_test_url: "https://speed.cloudflare.com/__down?bytes=200000"
-  # 测速地址多候选（数组，优先于 speed_test_url）：逐个尝试，首个可达的用于测速，提高测速成功率
+  speed_test_url: "https://speed.cloudflare.com/__down?bytes=100000"
+  # 测速地址多候选（数组，优先于 speed_test_url）：逐个尝试，首个可达的用于测速
+  # 均为公开第三方测速开放站（免鉴权），经节点代理下载采样字节，流量小可控
   speed_test_urls:
-    - "https://speed.cloudflare.com/__down?bytes=200000"
+    - "https://speed.cloudflare.com/__down?bytes=100000"
     - "http://speedtest.tele2.net/100KB.zip"
-    - "http://proof.ovh.net/files/1Mb.dat"
+    - "http://proof.ovh.net/files/100Ko.dat"
+    - "https://speed.hetzner.de/100MB.bin"
+    - "http://ipv4.download.thinkbroadband.com/5MB.zip"
+    - "http://cachefly.cachefly.net/100mb.test"
+    - "http://speedtest-blr1.digitalocean.com/10mb.test"
+    - "http://speedtest.ftp.otenet.gr/files/test10Mb.db"
   # 测速采样字节数（收到该字节量即结束）
-  speed_test_bytes: 200000
+  speed_test_bytes: 100000
   # 测速时协议桥复用 TTL（毫秒，默认 60000）：桥接协议（vless/trojan/ss 等）测速后及时释放
   bridge_ttl_ms: 60000
   # 是否把延迟追加到节点名称（如 "节点名 [120ms]"）

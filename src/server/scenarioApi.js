@@ -149,12 +149,34 @@ function registerScenarioApi(app, ctx) {
         proxy_from_pool: true,
         pool_empty_fallback_direct: true,
       },
+      // 第三方公开测速候选（默认内置多候选，前台「全站参数-检测」可改；经节点代理下载采样字节，流量小可控）
+      probe: {
+        speed_test: true,
+        speed_test_urls: [
+          'https://speed.cloudflare.com/__down?bytes=100000',
+          'http://speedtest.tele2.net/100KB.zip',
+          'http://proof.ovh.net/files/100Ko.dat',
+          'https://speed.hetzner.de/100MB.bin',
+          'http://ipv4.download.thinkbroadband.com/5MB.zip',
+          'http://cachefly.cachefly.net/100mb.test',
+          'http://speedtest-blr1.digitalocean.com/10mb.test',
+          'http://speedtest.ftp.otenet.gr/files/test10Mb.db',
+        ],
+      },
     };
     // 场景推荐参数补丁（converter / clash / probe 等，逐层合并）
     if (scenario.config_patch && typeof scenario.config_patch === 'object') {
       for (const [sec, vals] of Object.entries(scenario.config_patch)) {
         patch[sec] = Object.assign({}, patch[sec] || {}, vals);
       }
+    }
+    // 用户向导选择的测速源覆盖：空=默认第三方多候选；非空=仅用该地址
+    const chosenSpeedUrl = String(body.speed_url || '').trim();
+    if (chosenSpeedUrl) {
+      patch.probe.speed_test_url = chosenSpeedUrl;
+      patch.probe.speed_test_urls = [chosenSpeedUrl];
+    } else if (patch.probe && Array.isArray(patch.probe.speed_test_urls)) {
+      patch.probe.speed_test_urls = patch.probe.speed_test_urls.filter(Boolean);
     }
 
     try {

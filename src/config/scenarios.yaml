@@ -36,8 +36,17 @@ scenarios:
           url_test_interval: 180
       probe:
         speed_test: true
-        speed_test_url: https://speed.cloudflare.com/__down?bytes=10000000
-        speed_test_bytes: 10000000
+        speed_test_url: https://speed.cloudflare.com/__down?bytes=100000
+        speed_test_bytes: 100000
+        # 第三方公开测速候选（经节点下载采样，不占用服务器带宽；前台「全站参数-检测」可改）
+        speed_test_urls:
+        - https://speed.cloudflare.com/__down?bytes=100000
+        - http://speedtest.tele2.net/100KB.zip
+        - http://proof.ovh.net/files/100Ko.dat
+        - https://speed.hetzner.de/100MB.bin
+        - http://ipv4.download.thinkbroadband.com/5MB.zip
+        - http://cachefly.cachefly.net/100mb.test
+        - http://speedtest-blr1.digitalocean.com/10mb.test
   daily:
     label: 日常上网
     emoji: 🌐
@@ -339,6 +348,11 @@ scenarios:
         udp: true
       probe:
         speed_test: true
+        speed_test_urls:
+        - https://speed.cloudflare.com/__down?bytes=100000
+        - http://speedtest.tele2.net/100KB.zip
+        - http://proof.ovh.net/files/100Ko.dat
+        - https://speed.hetzner.de/100MB.bin
   light:
     label: 轻量浏览
     emoji: 🌿
