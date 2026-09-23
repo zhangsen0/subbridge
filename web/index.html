@@ -88,6 +88,16 @@
           </div>
         </div>
 
+        <!-- 本机订阅链接（常驻，一键复制） -->
+        <div class="card sub-link-card" id="sub-link-card" style="display:none">
+          <div class="sub-link-head">
+            <h3>本机订阅链接 <span class="tag ok">外部客户端拉取用</span></h3>
+            <button type="button" class="btn mini" id="btn-copy-sub-link">复制</button>
+          </div>
+          <code class="sub-link-value" id="sub-link-value">-</code>
+          <p class="hint">把这条链接填进 Clash / sing-box / v2rayN 即可拉取节点池合并后的订阅。转换格式加 <code>&amp;target=clash|singbox|links|v2ray</code>；未登录或令牌为空时不可用。</p>
+        </div>
+
         <!-- 抓取输入区 -->
         <div class="card grab-box">
           <h3>抓取来源 <span class="tag ok">自动识别</span></h3>

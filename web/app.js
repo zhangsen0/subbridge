@@ -242,8 +242,21 @@ async function identifyRole() {
     currentRole = data.role || 'user';
     subscriptionUrl = data.subscriptionUrl || '';
     applyRoleUi();
+    renderSubLinkCard();
   } catch (err) {
     toast(err.message, true);
+  }
+}
+
+/** 更新驾驶舱「本机订阅链接」常驻框（登录后显示） */
+function renderSubLinkCard() {
+  const card = $('sub-link-card');
+  if (!card) return;
+  const loggedIn = currentRole === 'admin' || currentRole === 'user';
+  card.style.display = loggedIn && subscriptionUrl ? '' : 'none';
+  if (loggedIn && subscriptionUrl) {
+    const val = $('sub-link-value');
+    if (val && val.textContent !== subscriptionUrl) val.textContent = subscriptionUrl;
   }
 }
 
@@ -301,6 +314,15 @@ function showGuestHints() {
 
 /* ---------- 登录跳转 ---------- */
 function initLogin() {
+  const copyBtn = $('btn-copy-sub-link');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const val = $('sub-link-value');
+      if (!val || !val.textContent) { toast('订阅链接尚未就绪', true); return; }
+      copyTextToClipboard(val.textContent.trim());
+      toast('已复制本机订阅链接');
+    });
+  }
   const btn = $('btn-login');
   if (btn) {
     btn.addEventListener('click', () => {
@@ -347,6 +369,7 @@ async function loadDashboard() {
     $('kpi-localnode').textContent = lnLabel;
     $('kpi-tunnel').textContent = `隧道 ${ln.tunnelRunning ? '运行中' : '未运行'}${ln.publicHost ? ' · ' + ln.publicHost : ''}`;
     subscriptionUrl = d.subscription.subscriptionUrl || subscriptionUrl;
+    renderSubLinkCard();
 
     renderMini($('recent-logs'), d.recentLogs || [], (l) => ({
       t: typeName(l.type) + ' · ' + (l.url || '').slice(0, 60),
