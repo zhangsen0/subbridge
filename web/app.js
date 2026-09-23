@@ -212,8 +212,14 @@ function initCollapse() {
   document.querySelectorAll('.card.collapsible').forEach((card) => {
     const head = card.querySelector(':scope > .result-head, :scope > h3');
     if (!head) return;
+    // 默认状态：data-fold="open" 直接展示；否则收起（不常用内容默认折叠，等用户点开）
+    if (card.dataset.fold !== 'open') card.classList.add('folded');
     head.style.cursor = 'pointer';
-    head.addEventListener('click', () => card.classList.toggle('folded'));
+    head.addEventListener('click', (e) => {
+      // 标题栏内的按钮/输入/链接不触发折叠（避免点按钮误收起）
+      if (e.target.closest('button, input, select, textarea, a, label')) return;
+      card.classList.toggle('folded');
+    });
   });
 }
 
@@ -518,8 +524,14 @@ function initGrab() {
 }
 
 /* ---------- 源管理（表格增删改查 + 批量抓取 + 自动采集） ---------- */
+let srcPage = 1;
 function initSources() {
-  $('btn-src-add').addEventListener('click', addSource);
+  $('btn-src-add').addEventListener('click', openSourceModal);
+  $('btn-src-modal-close').addEventListener('click', closeSourceModal);
+  $('btn-src-modal-cancel').addEventListener('click', closeSourceModal);
+  $('src-modal-mask').addEventListener('click', (e) => { if (e.target.id === 'src-modal-mask') closeSourceModal(); });
+  $('btn-src-modal-add').addEventListener('click', addSourcesBatch);
+  $('src-modal-urls').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addSourcesBatch(); });
   $('btn-src-grab-all').addEventListener('click', () => grabSourcesAll(false));
   $('btn-src-grab-probe').addEventListener('click', () => grabSourcesAll(true));
   $('btn-auto-run').addEventListener('click', async () => {
@@ -541,26 +553,70 @@ function initSources() {
   loadAutoGrabStatus();
 }
 
-async function addSource() {
-  const url = $('src-new-url').value.trim();
-  if (!url) { toast('请先粘贴来源链接', true); return; }
-  const note = $('src-new-note').value.trim();
+function openSourceModal() {
+  $('src-modal-mask').classList.remove('hidden');
+  $('src-modal-urls').value = '';
+  $('src-modal-note').value = '';
+  setTimeout(() => $('src-modal-urls').focus(), 50);
+}
+
+function closeSourceModal() {
+  $('src-modal-mask').classList.add('hidden');
+}
+
+/** 批量添加：解析多行文本（支持 # 注释、空行、|后缀、日期变量），逐个入库 */
+async function addSourcesBatch() {
+  const text = $('src-modal-urls').value.trim();
+  if (!text) { toast('请先粘贴来源（每行一个）', true); return; }
+  const note = $('src-modal-note').value.trim();
+  const urls = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  if (!urls.length) { toast('没有可添加的来源（注释/空行已忽略）', true); return; }
+  const btn = $('btn-src-modal-add');
+  btn.disabled = true;
   try {
-    await apiJson('/api/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, note }) });
-    toast('来源已添加');
-    $('src-new-url').value = ''; $('src-new-note').value = '';
-    loadSources(); if (currentRole === 'admin') loadLogs(true);
-  } catch (err) { toast('添加失败：' + err.message, true); }
+    const d = await apiJson('/api/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ urls, note }) });
+    toast('已添加 ' + (d.count || 0) + ' 个来源（重复自动跳过）');
+    closeSourceModal();
+    loadSources(); loadAutoGrabStatus(); if (currentRole === 'admin') loadLogs(true);
+  } catch (err) {
+    toast('添加失败：' + err.message, true);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function loadSources() {
   try {
-    const d = await apiJson('/api/sources');
+    const d = await apiJson('/api/sources?page=' + srcPage + '&pageSize=50');
     renderSources(d.sources || []);
+    renderSrcPager(d);
   } catch (err) {
     document.querySelector('#sources-tbody').innerHTML =
       '<tr><td colspan="6" class="empty">加载失败：' + escapeHtml(err.message) + '</td></tr>';
   }
+}
+
+function renderSrcPager(d) {
+  const box = document.getElementById('src-pager');
+  if (!box) return;
+  const page = d.page || 1;
+  const pages = d.pages || 1;
+  if (pages <= 1) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<span class="pg-info">共 ' + (d.total || 0) + ' 条 · 第 ' + page + ' / ' + pages + ' 页</span>' +
+    '<button type="button" class="btn mini" data-pg="prev"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>' +
+    '<span class="pg-nums">' + pagerNums(page, pages) + '</span>' +
+    '<button type="button" class="btn mini" data-pg="next"' + (page >= pages ? ' disabled' : '') + '>下一页</button>';
+  box.querySelectorAll('button[data-pg]').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (b.dataset.pg === 'prev' && page > 1) srcPage = page - 1;
+      if (b.dataset.pg === 'next' && page < pages) srcPage = page + 1;
+      loadSources();
+    });
+  });
+  box.querySelectorAll('button[data-num]').forEach((b) => {
+    b.addEventListener('click', () => { srcPage = Number(b.dataset.num); loadSources(); });
+  });
 }
 
 function renderSources(list) {
@@ -690,9 +746,11 @@ function initDebug() {
    ============================================================ */
 let poolAll = [];
 
+let poolPage = 1;
+let poolTypeList = [];
 async function loadPool() {
   try {
-    const qs = [];
+    const qs = ['page=' + poolPage, 'pageSize=100'];
     const search = $('pool-search').value.trim();
     const type = $('pool-type').value;
     const enabled = $('pool-enabled').value;
@@ -701,15 +759,40 @@ async function loadPool() {
     if (type) qs.push('type=' + encodeURIComponent(type));
     if (enabled) qs.push('enabled=' + encodeURIComponent(enabled));
     if (onlyAlive) qs.push('ok=1');
-    const d = await apiJson('/api/pool' + (qs.length ? '?' + qs.join('&') : ''));
+    const d = await apiJson('/api/pool?' + qs.join('&'));
     poolAll = d.nodes;
+    poolTypeList = d.types || [];
     refreshPoolTypes();
     renderPool(d.nodes, d.total);
+    renderPoolPager(d);
   } catch (err) {
     if (currentRole === 'guest') { showGuestHints(); return; }
     toast('加载节点库失败：' + err.message, true);
     showLoadError('pool-body', err.message, () => loadPool(), '');
   }
+}
+
+function renderPoolPager(d) {
+  const box = document.getElementById('pool-pager');
+  if (!box) return;
+  const page = d.page || 1;
+  const pages = d.pages || 1;
+  if (pages <= 1) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<span class="pg-info">共 ' + (d.total || 0) + ' 条 · 第 ' + page + ' / ' + pages + ' 页</span>' +
+    '<button type="button" class="btn mini" data-pg="prev"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>' +
+    '<span class="pg-nums">' + pagerNums(page, pages) + '</span>' +
+    '<button type="button" class="btn mini" data-pg="next"' + (page >= pages ? ' disabled' : '') + '>下一页</button>';
+  box.querySelectorAll('button[data-pg]').forEach((b) => {
+    b.addEventListener('click', () => {
+      if (b.dataset.pg === 'prev' && page > 1) poolPage = page - 1;
+      if (b.dataset.pg === 'next' && page < pages) poolPage = page + 1;
+      loadPool();
+    });
+  });
+  box.querySelectorAll('button[data-num]').forEach((b) => {
+    b.addEventListener('click', () => { poolPage = Number(b.dataset.num); loadPool(); });
+  });
 }
 
 function renderPool(nodes, total) {
@@ -744,10 +827,10 @@ function renderPool(nodes, total) {
 }
 
 function initPool() {
-  $('pool-search').addEventListener('input', loadPool);
-  $('pool-type').addEventListener('change', loadPool);
-  $('pool-enabled').addEventListener('change', loadPool);
-  $('pool-only-alive').addEventListener('change', loadPool);
+  $('pool-search').addEventListener('input', () => { poolPage = 1; loadPool(); });
+  $('pool-type').addEventListener('change', () => { poolPage = 1; loadPool(); });
+  $('pool-enabled').addEventListener('change', () => { poolPage = 1; loadPool(); });
+  $('pool-only-alive').addEventListener('change', () => { poolPage = 1; loadPool(); });
 
   $('btn-pool-probe').addEventListener('click', async () => {
     const btn = $('btn-pool-probe');
@@ -917,7 +1000,7 @@ function refreshPoolTypes() {
   const sel = $('pool-type');
   if (!sel) return;
   const cur = sel.value;
-  const types = [...new Set(poolAll.map((n) => n.type).filter(Boolean))].sort();
+  const types = poolTypeList.length ? poolTypeList : [...new Set(poolAll.map((n) => n.type).filter(Boolean))].sort();
   sel.innerHTML = '<option value="">全部类型</option>' +
     types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
   sel.value = cur;

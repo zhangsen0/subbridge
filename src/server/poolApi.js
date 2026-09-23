@@ -52,7 +52,20 @@ function registerPoolApi(app, ctx) {
     // 启用状态过滤：enabled=1 仅启用、enabled=0 仅停用、all 全部（默认全部）
     if (q.enabled === '1') nodes = nodes.filter((n) => n.enabled !== false);
     if (q.enabled === '0') nodes = nodes.filter((n) => n.enabled === false);
-    return { total: nodes.length, nodes: nodes.map(maskNode) };
+    // 分页（page 从 1 开始；pageSize 上限 200，默认 100）
+    const total = nodes.length;
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 100));
+    const paged = nodes.slice((page - 1) * pageSize, page * pageSize);
+    return {
+      total,
+      page,
+      pageSize,
+      pages: Math.max(1, Math.ceil(total / pageSize)),
+      nodes: paged.map(maskNode),
+      // 全量类型（供筛选下拉，不受分页影响）
+      types: [...new Set(nodes.map((n) => n.type).filter(Boolean))].sort(),
+    };
   });
 
   // 单节点详情（完整字段，供导出 OpenVPN 配置等）

@@ -174,11 +174,12 @@
       <!-- ============ 节点库 ============ -->
       <!-- ============ 源管理（表格化增删改查 + 批量抓取） ============ -->
       <section id="panel-sources" class="panel">
-        <div class="card">
+        <div class="card collapsible" data-fold="open">
           <div class="auto-grab-head">
             <h3>抓取来源 <span class="tag ok">表格管理 · 增删改查</span></h3>
             <div class="actions">
-              <button type="button" class="btn primary small" id="btn-src-grab-all">抓取全部</button>
+              <button type="button" class="btn primary small" id="btn-src-add">＋ 添加来源</button>
+              <button type="button" class="btn small" id="btn-src-grab-all">抓取全部</button>
               <button type="button" class="btn small" id="btn-src-grab-probe">抓取并测速</button>
             </div>
           </div>
@@ -197,12 +198,8 @@
               <tbody id="sources-tbody"></tbody>
             </table>
           </div>
-          <div class="add-source-row">
-            <input id="src-new-url" placeholder="https:// 订阅链接 / 网页地址 / 节点文本（支持 {Y_m_d} 日期变量与 |links / |ss 后缀）" style="flex:1;min-width:220px">
-            <input id="src-new-note" placeholder="备注（可选）" style="width:140px">
-            <button type="button" class="btn primary" id="btn-src-add">＋ 添加</button>
-          </div>
-          <p class="hint">启用=参与抓取与订阅输出；采集=参与自动定时采集。抓取结果自动补充/更新进节点池，不会自动删除。</p>
+          <div class="pager" id="src-pager"></div>
+          <p class="hint">启用=参与抓取与订阅输出；采集=参与自动定时采集。抓取结果自动补充/更新进节点池，不会自动删除。支持 {Y_m_d} 日期变量与 |links / |ss 后缀。</p>
         </div>
         <div id="src-result" class="hidden">
           <div class="card">
@@ -216,7 +213,7 @@
       </section>
 
       <section id="panel-pool" class="panel">
-        <div class="card collapsible">
+        <div class="card collapsible" data-fold="open">
           <div class="result-head">
             <h3>节点库 <span class="tag">累积 · 不自动删除</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
@@ -280,11 +277,12 @@ trojan://..."></textarea>
               <tbody id="pool-body"></tbody>
             </table>
           </div>
+          <div class="pager" id="pool-pager"></div>
           <p class="hint">节点自动补充 / 更新入库，检测不可达也保留；停用节点不参与订阅输出；手动删除或清空需显式操作。</p>
         </div>
 
         <!-- 自定义规则（高级+） -->
-        <div class="card collapsible" data-mode="advanced" id="rules-card">
+        <div class="card collapsible" data-fold="closed" data-mode="advanced" id="rules-card">
           <div class="result-head">
             <h3>自定义规则 · 从节点池取节点 <span class="tag">高级</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
@@ -373,7 +371,7 @@ trojan://..."></textarea>
 
       <!-- ============ 事件日志（仅管理员） ============ -->
       <section id="panel-logs" class="panel">
-        <div class="card collapsible">
+        <div class="card collapsible" data-fold="open">
           <div class="result-head">
             <h3>事件日志 <span class="tag">全站可检测数据均有记录</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
@@ -424,7 +422,7 @@ trojan://..."></textarea>
           <div id="ln-copy-block" class="ln-copy-block" style="display:none"></div>
         </div>
         <div class="config-grid">
-          <div class="card collapsible">
+          <div class="card collapsible" data-fold="closed">
             <h3>本地节点配置 <span class="fold-ico">▼</span></h3>
             <div class="ln-fields" id="ln-fields"></div>
             <div class="actions">
@@ -456,7 +454,7 @@ trojan://..."></textarea>
 
       <!-- ============ 全站参数（仅管理员） ============ -->
       <section id="panel-config" class="panel">
-        <div class="card collapsible">
+        <div class="card collapsible" data-fold="closed">
           <div class="result-head">
             <h3>全站参数表 <span class="tag">参数全配置化 · 前台可改</span><span class="fold-ico">▼</span></h3>
             <div class="toolbar">
@@ -484,7 +482,7 @@ trojan://..."></textarea>
           <p class="hint">直接编辑完整 YAML（含注释丢失风险，请谨慎）。保存后立即生效并持久化。</p>
         </div>
 
-        <div class="card collapsible">
+        <div class="card collapsible" data-fold="closed">
           <h3>模板管理 <span class="fold-ico">▼</span></h3>
           <div class="tpl-bar">
             <select id="template-select"></select>
@@ -515,5 +513,22 @@ trojan://..."></textarea>
   <footer class="foot">SubBridge · 抓取与节点转发 · 支持 Clash / sing-box / V2RayN 等客户端</footer>
   <div id="toast" class="toast hidden"></div>
   <script src="/static/app.js"></script>
+      <!-- 添加来源弹出层（支持批量文本） -->
+      <div class="modal-mask hidden" id="src-modal-mask">
+        <div class="modal">
+          <div class="modal-head">
+            <h3>添加抓取来源</h3>
+            <button type="button" class="modal-close" id="btn-src-modal-close">×</button>
+          </div>
+          <p class="hint">每行一个来源：订阅链接 / 网页地址 / 节点文本均可，自动识别；支持 {Y_m_d} 等日期变量与 |links / |ss 后缀；# 开头的行视为注释忽略。</p>
+          <textarea id="src-modal-urls" rows="8" spellcheck="false"
+            placeholder="https://example.com/sub?token=xxx&#10;https://www.vpngate.net/cn/&#10;https://raw.githubusercontent.com/xxx/yyy/main/clash.yaml|links&#10;# 这是注释，不会添加"></textarea>
+          <input id="src-modal-note" placeholder="备注（可选，对本批全部来源生效）">
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-src-modal-add">批量添加</button>
+            <button type="button" class="btn ghost" id="btn-src-modal-cancel">取消</button>
+          </div>
+        </div>
+      </div>
 </body>
 </html>

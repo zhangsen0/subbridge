@@ -380,13 +380,13 @@ body[data-mode='advanced'] [data-mode='expert']:not(.seg button) { display: none
 .toggle-field { justify-content: flex-end; }
 .toggle-field .switch { margin-top: 6px; }
 
-/* ---------- 卡片折叠（收起/展开） ---------- */
+/* ---------- 卡片折叠（收起/展开；默认收起，点击标题展开） ---------- */
 .card.collapsible > .result-head,
 .card.collapsible > h3 { cursor: pointer; user-select: none; }
 .card.collapsible h3 .fold-ico { margin-left: 8px; font-size: 12px; opacity: .7; transition: transform .2s; display: inline-block; }
 .card.collapsible.folded h3 .fold-ico { transform: rotate(-90deg); }
-.card.collapsible > .collapsible-body { transition: none; }
-.card.collapsible.folded > .collapsible-body { display: none; }
+/* 折叠时隐藏标题行以外的全部内容（保留标题可再次点击展开） */
+.card.collapsible.folded > :not(.result-head):not(h3) { display: none !important; }
 
 /* 日志分页 */
 .pager { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
@@ -394,3 +394,13 @@ body[data-mode='advanced'] [data-mode='expert']:not(.seg button) { display: none
 .pager .btn.mini { padding: 3px 10px; font-size: 12px; }
 .pager .btn.mini.on { background: var(--accent, #4f6ef7); color: #fff; border-color: var(--accent, #4f6ef7); }
 .pager .btn.mini:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ---------- 弹出层（添加来源） ---------- */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-mask.hidden { display: none; }
+.modal { background: var(--panel, #17171c); border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 14px; width: 100%; max-width: 620px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.modal-head h3 { margin: 0; font-size: 16px; }
+.modal-close { background: none; border: none; color: var(--text-faint, #888); font-size: 22px; cursor: pointer; line-height: 1; }
+.modal textarea, .modal input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 8px; background: var(--panel-2, #16161a); color: var(--text, #eee); font-size: 13px; margin-bottom: 10px; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; }

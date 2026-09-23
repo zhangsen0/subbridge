@@ -102,6 +102,31 @@ class SourceStore {
     return item;
   }
 
+  /** 批量添加（urls 数组：字符串或 {url, note?}；重复自动跳过） */
+  async addMany(urls, opts = {}) {
+    const note = String(opts.note || '').trim();
+    const added = [];
+    const seen = new Set(this.state.sources.map((s) => s.url));
+    for (const raw of urls) {
+      const url = typeof raw === 'string' ? raw.trim() : String((raw && raw.url) || '').trim();
+      const itemNote = raw && typeof raw === 'object' && raw.note ? String(raw.note).trim() : note;
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      const item = {
+        id: crypto.randomUUID(),
+        url,
+        note: itemNote,
+        enabled: true,
+        auto: true,
+        lastAt: '', lastStatus: '', lastNodes: 0, lastError: '',
+      };
+      this.state.sources.push(item);
+      added.push(item);
+    }
+    if (added.length) await this._save();
+    return added;
+  }
+
   /** 更新来源字段（id 必填；url 重复校验） */
   async update(id, patch) {
     const item = this.state.sources.find((s) => s.id === id);

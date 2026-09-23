@@ -40,14 +40,32 @@ function registerSourceApi(app, ctx) {
   }
 
   // 来源列表
-  app.get('/api/sources', async () => {
-    return { ok: true, sources: sources.list() };
+  app.get('/api/sources', async (req) => {
+    const q = req.query || {};
+    const all = sources.list();
+    const total = all.length;
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(q.pageSize) || 100));
+    return {
+      ok: true,
+      total,
+      page,
+      pageSize,
+      pages: Math.max(1, Math.ceil(total / pageSize)),
+      sources: all.slice((page - 1) * pageSize, page * pageSize),
+    };
   });
 
   // 新增来源
   app.post('/api/sources', async (req, reply) => {
     const body = req.body || {};
     try {
+      // 批量添加：body.urls 为数组（每项 {url, note?} 或字符串）；单个：body.url
+      if (Array.isArray(body.urls) && body.urls.length) {
+        const items = await sources.addMany(body.urls, { note: body.note });
+        ctx.fetchLog.record({ type: 'config', kind: 'source', url: `批量新增抓取来源 ${items.length} 个`, error: '' });
+        return { ok: true, count: items.length, sources: items };
+      }
       const item = await sources.add(body);
       ctx.fetchLog.record({ type: 'config', kind: 'source', url: `新增抓取来源：${item.url}`, error: '' });
       return { ok: true, source: item };
