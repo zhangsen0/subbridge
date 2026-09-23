@@ -68,6 +68,10 @@ async function registerConfigApi(app, ctx) {
       await updateConfig(body);
       // 配置变更记入事件日志
       ctx.fetchLog.record({ type: 'config', kind: 'update', url: `更新 ${keyCount} 个配置项`, nodes: 0, error: '' });
+      // 涉及运行时组件（本地节点等）的配置保存后立即应用
+      if (typeof ctx.applyConfig === 'function') {
+        await ctx.applyConfig().catch((err) => app.log.warn(`应用配置失败: ${err.message}`));
+      }
       return { ok: true, config: maskSecrets(getConfig()) };
     } catch (err) {
       return reply.code(400).send({ error: err.message });

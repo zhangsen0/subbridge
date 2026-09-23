@@ -64,7 +64,7 @@ const ENV_MAP = [
 ];
 
 // 允许前台修改的配置顶层键（防止写入脏数据）
-const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging', 'localnode', 'cf_tunnel', 'probe', 'subscription', 'storage', 'pool', 'grab', 'fetch_log']);
+const ALLOWED_TOP_KEYS = new Set(['server', 'fetcher', 'converter', 'security', 'logging', 'localnode', 'cf_tunnel', 'probe', 'subscription', 'storage', 'pool', 'grab', 'fetch_log', 'ui', 'presets']);
 
 /** 深合并：对象递归合并，数组与基本类型直接覆盖 */
 function deepMerge(base, override) {
@@ -184,10 +184,14 @@ async function updateConfig(partial) {
     throw new Error('配置片段必须是 JSON 对象');
   }
 
-  // 过滤非法顶层键
+  // 校验顶层键：白名单外的键显式报错，避免"保存成功但未生效"的困惑
   const clean = {};
+  const unknown = Object.keys(partial).filter((k) => !ALLOWED_TOP_KEYS.has(k));
+  if (unknown.length) {
+    throw new Error(`不支持的配置项: ${unknown.join(', ')}（白名单：${[...ALLOWED_TOP_KEYS].join(', ')}）`);
+  }
   for (const key of Object.keys(partial)) {
-    if (ALLOWED_TOP_KEYS.has(key)) clean[key] = partial[key];
+    clean[key] = partial[key];
   }
 
   // 累积进覆盖层（增量持久化：不覆盖之前已保存的其他键）
@@ -219,10 +223,14 @@ async function replaceConfig(partial) {
     throw new Error('配置必须是 JSON 对象');
   }
 
-  // 过滤非法顶层键
+  // 校验顶层键：白名单外的键显式报错，避免"保存成功但未生效"的困惑
   const clean = {};
+  const unknown = Object.keys(partial).filter((k) => !ALLOWED_TOP_KEYS.has(k));
+  if (unknown.length) {
+    throw new Error(`不支持的配置项: ${unknown.join(', ')}（白名单：${[...ALLOWED_TOP_KEYS].join(', ')}）`);
+  }
   for (const key of Object.keys(partial)) {
-    if (ALLOWED_TOP_KEYS.has(key)) clean[key] = partial[key];
+    clean[key] = partial[key];
   }
   state.overlay = clean;
 
@@ -266,6 +274,7 @@ function maskSecrets(config) {
 
 module.exports = {
   loadConfig,
+  ALLOWED_TOP_KEYS,
   getConfig,
   getDataDir,
   getStore,

@@ -59,8 +59,8 @@ test('updateConfig 拒绝白名单外的顶层键', async () => {
   const { loadConfig, updateConfig, getConfig } = require('../src/config/loader');
   await loadConfig();
 
-  await updateConfig({ evil_key: 1, server: { port: 18082 } });
-  assert.equal(getConfig().evil_key, undefined, '非法顶层键不应写入');
+  await assert.rejects(updateConfig({ evil_key: 1 }), /不支持的配置项/, '非法顶层键应显式报错');
+  await updateConfig({ server: { port: 18082 } });
   assert.equal(getConfig().server.port, 18082, '合法键正常生效');
 });
 

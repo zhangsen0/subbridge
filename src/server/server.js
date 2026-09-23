@@ -107,6 +107,12 @@ function createServer(config) {
   localnode.start();
   setImmediate(() => { syncLocalNodeToPool().catch(() => {}); });
 
+  // 配置变更后应用运行时（保存本地节点等配置立即生效，无需重启服务）
+  ctx.applyConfig = async () => {
+    await localnode.restart();
+    await syncLocalNodeToPool();
+  };
+
   // 优雅退出时关闭本地代理与隧道
   app.addHook('onClose', async () => {
     localnode.stop();
