@@ -35,7 +35,7 @@ function req(method, path, body, token) {
   await t('POST /api/pool/probe 空测速', () => req('POST', '/api/pool/probe', { limit: 3, timeout: 5 }, T));
   await t('GET /api/pool?limit=5 节点导出', () => req('GET', '/api/pool?limit=5', null, T));
   // 抓取（本地源）
-  await t('GET /api/grab 本地源', () => req('GET', '/api/grab?url=http%3A%2F%2F127.0.0.1%3A18099%2Fsub.txt', null, T));
+  await t('GET /api/grab 本地源', () => req('GET', '/api/grab?url=http%3A%2F%2F127.0.0.1%3A18100%2Fsub.txt', null, T));
   // 规则
   await t('GET /api/rules 规则列表', () => req('GET', '/api/rules', null, T));
   await t('POST /api/rules 保存规则', () => req('POST', '/api/rules', { rules: [{ type: 'limit', count: 10 }] }, T));

@@ -46,6 +46,7 @@ const ENV_MAP = [
   ['SUBBRIDGE_DEFAULT_TARGET', 'converter.default_target'],
   ['SUBBRIDGE_LOG_LEVEL', 'logging.level'],
   ['SUBBRIDGE_BLOCK_PRIVATE', 'fetcher.block_private', (v) => v === 'true' || v === '1'],
+  ['SUBBRIDGE_LOCALNODE_MODE', 'localnode.mode'],
   ['SUBBRIDGE_LOCALNODE_ENABLED', 'localnode.enabled', (v) => v === 'true' || v === '1'],
   ['SUBBRIDGE_LOCALNODE_HTTP_PORT', 'localnode.http_port', (v) => parseInt(v, 10)],
   ['SUBBRIDGE_LOCALNODE_SOCKS_PORT', 'localnode.socks_port', (v) => parseInt(v, 10)],

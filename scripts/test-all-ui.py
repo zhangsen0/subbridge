@@ -15,7 +15,7 @@ from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:18081"
 TOKEN = "admin-token"
-LOCAL_SRC = "http://127.0.0.1:18099/sub.txt"  # 本地测试源（沙箱内可达，速度快）
+LOCAL_SRC = "http://127.0.0.1:18100/sub.txt"  # 本地测试源（mock-sources.js，沙箱内可达）
 
 PASS, FAIL, WARN = [], [], []
 
@@ -105,6 +105,14 @@ def main():
         page.click("#btn-login")
         page.wait_for_timeout(1200)
         report("未登录点「登录」跳转登录页", "/login" in page.url, page.url)
+        # 未登录主页不显示永久"加载中"，而是未登录引导（回主页检查）
+        page.goto(BASE + "/")
+        page.wait_for_timeout(4000)
+        rl_guest = page.locator("#recent-logs").inner_text()
+        report("未登录主页显示登录引导（非加载中）", "未登录" in rl_guest, rl_guest[:60])
+        page.click("#recent-logs")
+        page.wait_for_timeout(1200)
+        report("未登录引导点击跳转登录页", "/login" in page.url, page.url)
         # 登录页主题按钮
         page.click("#btn-login-theme")
         page.wait_for_timeout(300)
@@ -362,11 +370,53 @@ def main():
         t, _ = wait_toast(15000, before=t0)
         report("「清空日志」", bool(t), t[:60])
 
+        # ========== 7.5 加载失败兜底（不显示永远"加载中"） ==========
+        print("== 7.5 加载失败兜底 ==")
+        def _block_route(route):
+            route.fulfill(status=500, content_type="application/json", body='{"error":"模拟故障"}')
+        page.route("**/api/dashboard", _block_route)
+        page.reload()
+        page.wait_for_timeout(3500)
+        recent_l = page.locator("#recent-logs").inner_text()
+        report("驾驶舱失败显示可重试", "加载失败" in recent_l and "重试" in recent_l, recent_l[:60])
+        page.unroute("**/api/dashboard")
+        page.click("#recent-logs")
+        page.wait_for_timeout(2500)
+        recent_ok = page.locator("#recent-logs").inner_text()
+        report("点击重试恢复加载", "加载失败" not in recent_ok, recent_ok[:60])
+
+        def _block_pool(route):
+            route.fulfill(status=500, content_type="application/json", body='{"error":"模拟故障"}')
+        page.route("**/api/pool*", _block_pool)
+        goto_tab("pool")
+        page.wait_for_timeout(2500)
+        pool_err = page.locator("#pool-body").inner_text()
+        report("节点库失败显示可重试", "加载失败" in pool_err and "重试" in pool_err, pool_err[:60])
+        page.unroute("**/api/pool*")
+        page.click("#pool-body .load-error")
+        page.wait_for_timeout(2500)
+        pool_ok = page.locator("#pool-body").inner_text()
+        report("节点库点击重试恢复", "加载失败" not in pool_ok, pool_ok[:60])
+        goto_tab("grab")
+
         # ========== 8. 本地节点 ==========
         print("== 8. 本地节点 ==")
         goto_tab("localnode")
         ln_status = page.locator("#ln-status-body").inner_text()
         report("本地节点状态加载", "HTTP" in ln_status or "本机" in ln_status, ln_status[:60])
+        # 本机节点信息（一键复制）
+        copy_block = page.locator("#ln-copy-block")
+        copy_block.wait_for(state="visible", timeout=8000)
+        cb_html = copy_block.inner_html()
+        report("本机节点信息区块显示", "HTTP 代理节点" in cb_html, cb_html[:80])
+        if copy_block.locator(".ln-copy-value").count():
+            copy_url = copy_block.locator(".ln-copy-value").first.inner_text()
+            report("节点链接含认证与地址", "http" in copy_url and "@" in copy_url, copy_url[:60])
+            page.click("#ln-copy-block [data-copy]")
+            page.wait_for_timeout(600)
+            t0 = toast_text()
+            t, _ = wait_toast(8000, before=t0)
+            report("「复制本机节点信息」", bool(t) and "已复制" in t, t[:60])
         # 修改节点名并保存
         name_input = page.locator('#ln-fields input[data-key="localnode.http_node_name"]')
         if name_input.count():
@@ -399,6 +449,20 @@ def main():
             report("「重启本地节点与隧道」", bool(t) and "重启失败" not in t, t[:60])
         else:
             report("本地节点字段存在", False, "未找到 http_node_name 输入框")
+
+        # 本机节点信息一键复制（端口复用/节点链接展示）
+        try:
+            copy_block = page.query_selector("#ln-copy-block")
+            has_copy = copy_block is not None and "HTTP 代理节点" in (copy_block.inner_html() or "")
+            report("本机节点信息展示", has_copy)
+            if has_copy:
+                page.click("#ln-copy-block [data-copy]")
+                page.wait_for_timeout(600)
+                t0 = toast_text()
+                t, _ = wait_toast(10000, before=t0)
+                report("「复制本机节点信息」", bool(t) and "已复制" in t, t[:50])
+        except Exception as e:
+            report("本机节点信息一键复制", False, str(e)[:80])
 
         # ========== 9. 全站参数 ==========
         print("== 9. 全站参数 ==")
@@ -489,7 +553,9 @@ def main():
 
         # ========== 13. JS 错误 ==========
         print("== 13. JS 错误检查 ==")
-        report("全程无 JS 报错", len(js_errors) == 0, "; ".join(js_errors[:4]))
+        # 失败兜底测试故意制造的 500 资源错误不算缺陷（route.fulfill 模拟故障）
+        real_errors = [e for e in js_errors if "status of 500" not in e]
+        report("全程无 JS 报错", len(real_errors) == 0, "; ".join(real_errors[:4]))
 
         # ========== 14. 恢复测试环境 ==========
         print("== 14. 恢复测试环境 ==")

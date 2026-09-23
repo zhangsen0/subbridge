@@ -112,6 +112,20 @@ function createServer(config) {
     localnode.stop();
   });
 
+  // 端口复用模式（localnode.mode=shared）：HTTP 代理 CONNECT 隧道挂到主服务端口，
+  // 绝对 URL 转发（GET http://host/...）在此钩子拦截（必须先于鉴权钩子，代理请求走代理认证而非页面令牌）
+  if (localnode.isSharedMode()) {
+    localnode.attachTo(app.server);
+    app.addHook('onRequest', (req, reply, done) => {
+      if (localnode.handleAbsolute(req.raw, reply.raw)) {
+        // 已由 HTTP 代理处理器接管底层 socket，不再进入 Fastify 路由与鉴权
+        reply.hijack();
+        return;
+      }
+      done();
+    });
+  }
+
   // 多级用户鉴权钩子（/ping、/login 与静态资源除外）
   app.addHook('onRequest', async (req, reply) => {
     if (req.url === '/ping' || req.url === '/' || req.url === '/login' || req.url === '/setup' || req.url === '/api/login' || req.url.startsWith('/static/')) return;

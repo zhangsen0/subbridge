@@ -72,11 +72,24 @@ function toast(text, isErr) {
 }
 
 /** 带令牌的 fetch（自动附带 X-API-Token） */
-function apiFetch(url, opts) {
+// 全局请求超时（秒）：init 时从 config.ui.request_timeout_seconds 读取，兜底 20s
+let uiTimeoutSeconds = 20;
+
+/** 发起请求（统一带令牌 + 超时控制，超时/挂起不再导致界面永远"加载中"） */
+async function apiFetch(url, opts) {
   const headers = Object.assign({}, (opts && opts.headers) || {});
   const token = getToken();
   if (token) headers['X-API-Token'] = token;
-  return fetch(url, Object.assign({}, opts, { headers }));
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), (uiTimeoutSeconds || 20) * 1000);
+  try {
+    return await fetch(url, Object.assign({}, opts, { headers, signal: controller.signal }));
+  } catch (err) {
+    if (err && err.name === 'AbortError') throw new Error('请求超时（' + uiTimeoutSeconds + 's），请检查服务是否可用');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 /** 读取 JSON 响应，失败抛出带状态的消息 */
 async function apiJson(url, opts) {
@@ -87,6 +100,24 @@ async function apiJson(url, opts) {
     throw new Error(msg);
   }
   return resp.json();
+}
+
+/**
+ * 加载失败兜底：把占位区域替换为"加载失败 · 点击重试"
+ * @param {string|HTMLElement} el 目标元素（id 或元素）
+ * @param {string} msg 失败原因
+ * @param {Function} retry 重试函数
+ * @param {string} emptyHtml 重试时回到的初始占位（默认"加载中..."）
+ */
+function showLoadError(el, msg, retry, emptyHtml) {
+  const node = typeof el === 'string' ? $(el) : el;
+  if (!node) return;
+  node.innerHTML = `<span class="load-error" style="cursor:pointer;color:var(--danger,#e5484d)">加载失败：${escapeHtml(msg || '未知错误')} · <u>点击重试</u></span>`;
+  node.onclick = () => {
+    node.innerHTML = emptyHtml || '加载中...';
+    node.onclick = null;
+    if (retry) retry();
+  };
 }
 
 /* ---------- 格式化 ---------- */
@@ -234,11 +265,38 @@ function applyRoleUi() {
   document.querySelectorAll('.admin-only').forEach((el) => el.classList.toggle('hidden', !isAdmin));
   // 非管理员隐藏操作列相关按钮（删除等）
   document.querySelectorAll('.ops-admin').forEach((el) => el.classList.toggle('hidden', !isAdmin));
+  if (currentRole === 'guest') {
+    // 未登录：不发起注定 401 的数据请求，显示"未登录"引导（避免一直加载中/刷屏报错）
+    showGuestHints();
+    return;
+  }
   if (isAdmin) {
     if (document.body.dataset.mode === 'expert') loadDebug();
     loadLogs(true);
   }
   loadDashboard();
+}
+
+/**
+ * 未登录引导：把数据区域替换为"未登录 · 点击登录"提示
+ * 仅替换初始"加载中..."占位，避免用户看到永久加载态
+ */
+function showGuestHints() {
+  const guestHtml = `<span class="load-error" style="cursor:pointer;color:var(--text-faint)">未登录 · <u>点击登录</u></span>`;
+  const hint = (id) => {
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = guestHtml;
+    el.onclick = () => { window.location.href = '/login'; };
+  };
+  hint('recent-logs');
+  hint('recent-nodes');
+  hint('ln-status-body');
+  hint('pool-body');
+  hint('log-body');
+  hint('config-fields');
+  const sel = $('template-select');
+  if (sel) sel.innerHTML = '<option value="">未登录 · 请先登录</option>';
 }
 
 /* ---------- 登录跳转 ---------- */
@@ -302,7 +360,10 @@ async function loadDashboard() {
     }));
     if (document.body.dataset.mode === 'expert') renderDebug(d);
   } catch (err) {
+    if (currentRole === 'guest') { showGuestHints(); return; }
     toast('加载驾驶舱失败：' + err.message, true);
+    showLoadError('recent-logs', err.message, () => loadDashboard());
+    showLoadError('recent-nodes', err.message, () => loadDashboard());
   }
 }
 
@@ -471,7 +532,9 @@ async function loadPool() {
     refreshPoolTypes();
     renderPool(d.nodes, d.total);
   } catch (err) {
+    if (currentRole === 'guest') { showGuestHints(); return; }
     toast('加载节点库失败：' + err.message, true);
+    showLoadError('pool-body', err.message, () => loadPool(), '');
   }
 }
 
@@ -761,7 +824,9 @@ async function loadLogs(silent) {
     const d = await apiJson('/api/logs?' + qs.join('&'));
     renderLogs(d.logs || []);
   } catch (err) {
+    if (currentRole === 'guest') { showGuestHints(); return; }
     if (!silent) toast('加载日志失败：' + err.message, true);
+    showLoadError('log-body', err.message, () => loadLogs(true), '');
   }
 }
 
@@ -811,8 +876,9 @@ function initLogs() {
    ============================================================ */
 const LOCALNODE_FIELDS = [
   { key: 'localnode.enabled', label: '启用本机节点', type: 'bool', hint: '开启后本机即成为订阅节点（HTTP/SOCKS5 代理）。' },
+  { key: 'localnode.mode', label: '监听模式', type: 'select', options: ['standalone', 'shared'], hint: 'standalone=独立端口监听；shared=端口复用：HTTP 代理与 Web 页面/API 共用同一个端口（适合 Waifly 等仅单端口的部署），此时 HTTP 端口以主服务端口为准。' },
   { key: 'localnode.host', label: '监听地址', type: 'text', hint: '0.0.0.0 表示所有网卡可访问；仅本机使用可填 127.0.0.1。' },
-  { key: 'localnode.http_port', label: 'HTTP 代理端口（0 关闭）', type: 'number', hint: '对外暴露的 HTTP 代理端口，如 1082。' },
+  { key: 'localnode.http_port', label: 'HTTP 代理端口（0 关闭）', type: 'number', hint: '独立模式（standalone）下对外暴露的 HTTP 代理端口；端口复用模式（shared）忽略此值，实际端口=主服务端口。' },
   { key: 'localnode.socks_port', label: 'SOCKS5 端口（0 关闭）', type: 'number', hint: '对外暴露的 SOCKS5 代理端口，如 1083。' },
   { key: 'localnode.username', label: '认证用户名', type: 'text', hint: '必填：避免成为开放代理。' },
   { key: 'localnode.password', label: '认证密码', type: 'text', hint: '必填：客户端连接时使用的密码。' },
@@ -843,7 +909,8 @@ async function loadLocalNodeStatus() {
     const d = await apiJson('/api/localnode');
     renderLocalNodeStatus(d.localnode || {});
   } catch (err) {
-    $('ln-status-body').innerHTML = `<div class="ln-item"><div class="k">加载失败</div><div class="v">${escapeHtml(err.message)}</div></div>`;
+    if (currentRole === 'guest') { showGuestHints(); return; }
+    showLoadError('ln-status-body', err.message, () => loadLocalNodeStatus());
   }
 }
 
@@ -861,6 +928,64 @@ function renderLocalNodeStatus(ln) {
   box.innerHTML = items
     .map(([k, v, bad]) => `<div class="ln-item"><div class="k">${k}</div><div class="v" style="color:${bad ? 'var(--text-faint)' : 'var(--ok)'}">${escapeHtml(v)}</div></div>`)
     .join('');
+
+  // 本机节点信息：可直接复制到客户端的代理链接
+  const copyBlock = $('ln-copy-block');
+  if (!copyBlock) return;
+  const copyRows = [];
+  if (ln.httpProxyUrl) {
+    copyRows.push({ label: 'HTTP 代理节点', value: ln.httpProxyUrl });
+  }
+  if (ln.socksUrl) {
+    copyRows.push({ label: 'SOCKS5 节点', value: ln.socksUrl });
+  }
+  if (ln.http && ln.http.running && ln.http.port && !ln.httpProxyUrl) {
+    copyRows.push({ label: 'HTTP 代理节点', value: `（无法生成链接：请先配置 localnode.public_address 或本机可探测公网 IP）` });
+  }
+  if (!copyRows.length) {
+    copyBlock.style.display = 'none';
+    copyBlock.innerHTML = '';
+    return;
+  }
+  copyBlock.style.display = '';
+  copyBlock.innerHTML = `<h4>本机节点信息（一键复制）</h4>` + copyRows.map((row, i) => `
+    <div class="ln-copy-row">
+      <div class="k">${escapeHtml(row.label)}</div>
+      <code class="ln-copy-value" id="ln-copy-${i}">${escapeHtml(row.value)}</code>
+      <button type="button" class="btn mini" data-copy="#ln-copy-${i}">复制</button>
+    </div>`).join('');
+  copyBlock.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const el = document.querySelector(btn.dataset.copy);
+      copyTextToClipboard(el.textContent.trim());
+      toast('已复制：' + el.textContent.trim());
+    });
+  });
+}
+
+/** 复制文本到剪贴板（navigator.clipboard + 兼容降级） */
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+  } else {
+    legacyCopy(text);
+  }
+}
+
+/** 旧浏览器复制降级（textarea + execCommand） */
+function legacyCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+  } catch {
+    /* 忽略 */
+  }
+  document.body.removeChild(ta);
 }
 
 function initLocalNode() {
@@ -1065,7 +1190,9 @@ async function loadConfig() {
     if (window.__syncQualityUi) window.__syncQualityUi();
     if (window.__syncCleanupUi) window.__syncCleanupUi();
   } catch (err) {
+    if (currentRole === 'guest') { showGuestHints(); return; }
     toast('加载配置失败：' + err.message, true);
+    showLoadError('config-fields', err.message, () => loadConfig(), '');
   }
 }
 
@@ -1121,6 +1248,9 @@ async function loadTemplateList() {
     if (sel.options.length && !sel.value) sel.value = sel.options[0].value;
   } catch (err) {
     toast('加载模板列表失败：' + err.message, true);
+    const sel = $('template-select');
+    if (sel) sel.innerHTML = `<option value="">模板加载失败（${escapeHtml(err.message)}）· 点击重试</option>`;
+    if (sel) sel.onchange = () => loadTemplateList();
   }
 }
 function initTemplates() {

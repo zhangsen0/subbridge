@@ -1,14 +1,18 @@
 'use strict';
 
 /**
- * HTTP 代理服务器（通用 HTTP(S) 转发）
+ * HTTP 代理核心处理函数（通用 HTTP(S) 转发）
+ *
+ * 拆分为可复用的处理器，供两种模式挂载：
+ *   - standalone：挂到独立 http.Server（createHttpProxy）
+ *   - shared：挂到主 Web 服务端口（CONNECT → server 'connect' 事件；绝对 URL → Fastify 钩子）
  *
  * 支持：
  *   - 绝对形式请求转发：GET http://host:port/path（普通 HTTP）
  *   - CONNECT 隧道：HTTPS / 任意 TCP 协议
  *   - 可选 Basic 认证（Proxy-Authorization）
  *
- * 所有参数（端口/认证）均来自配置，禁止写死。
+ * 所有参数（认证/日志）均来自配置，禁止写死。
  */
 
 const http = require('node:http');
@@ -16,22 +20,29 @@ const net = require('node:net');
 const { splitHostPort } = require('../core/util');
 
 /**
- * 创建 HTTP 代理服务器
- * @param {{username?: string, password?: string, logger?: object}} options
- * @returns {import('node:http').Server}
+ * 构造代理认证校验器
+ * @param {{username?: string, password?: string}} options
  */
-function createHttpProxy(options = {}) {
+function createAuthChecker(options = {}) {
   const username = options.username || '';
   const password = options.password || '';
-  const logger = options.logger;
   const authRequired = !!(username || password);
   const expectedAuth = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
-
-  /** 校验代理认证 */
-  function checkAuth(req) {
+  /** 校验代理认证（Proxy-Authorization） */
+  return function checkAuth(req) {
     if (!authRequired) return true;
     return (req.headers['proxy-authorization'] || '') === expectedAuth;
-  }
+  };
+}
+
+/**
+ * 构造绝对 URL 转发处理器（GET http://host:port/path 形式，普通 HTTP 目标）
+ * @param {{checkAuth?: Function, logger?: object}} options
+ * @returns {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void}
+ */
+function createAbsoluteHandler(options = {}) {
+  const checkAuth = options.checkAuth || (() => true);
+  const logger = options.logger;
 
   /** 认证失败响应 */
   function rejectUnauthorized(res) {
@@ -42,7 +53,7 @@ function createHttpProxy(options = {}) {
     res.end();
   }
 
-  const server = http.createServer((req, res) => {
+  return function handleAbsolute(req, res) {
     if (!checkAuth(req)) return rejectUnauthorized(res);
 
     let target;
@@ -87,10 +98,19 @@ function createHttpProxy(options = {}) {
       res.end();
     });
     req.pipe(upstream);
-  });
+  };
+}
 
-  // CONNECT 隧道（HTTPS 与任意 TCP）
-  server.on('connect', (req, clientSocket, head) => {
+/**
+ * 构造 CONNECT 隧道处理器（HTTPS 与任意 TCP 协议）
+ * @param {{checkAuth?: Function, logger?: object}} options
+ * @returns {(req: import('node:http').IncomingMessage, clientSocket: import('node:net').Socket, head: Buffer) => void}
+ */
+function createConnectHandler(options = {}) {
+  const checkAuth = options.checkAuth || (() => true);
+  const logger = options.logger;
+
+  return function handleConnect(req, clientSocket, head) {
     if (!checkAuth(req)) {
       clientSocket.end('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n');
       return;
@@ -116,12 +136,31 @@ function createHttpProxy(options = {}) {
       }
     });
     clientSocket.on('error', () => dst.destroy());
-  });
+  };
+}
 
+/**
+ * 创建 HTTP 代理服务器（独立端口模式）
+ * @param {{username?: string, password?: string, logger?: object}} options
+ * @returns {import('node:http').Server}
+ */
+function createHttpProxy(options = {}) {
+  const checkAuth = createAuthChecker(options);
+  const logger = options.logger;
+  const handleAbsolute = createAbsoluteHandler({ checkAuth, logger });
+  const handleConnect = createConnectHandler({ checkAuth, logger });
+
+  const server = http.createServer(handleAbsolute);
+  server.on('connect', handleConnect);
   server.on('error', (err) => {
-    if (logger) logger.warn(`HTTP 代理异常: ${err.message}`);
+    if (logger && logger.warn) logger.warn(`HTTP 代理异常: ${err.message}`);
   });
   return server;
 }
 
-module.exports = { createHttpProxy };
+module.exports = {
+  createHttpProxy,
+  createAuthChecker,
+  createAbsoluteHandler,
+  createConnectHandler,
+};

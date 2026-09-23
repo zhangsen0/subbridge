@@ -46,6 +46,9 @@
 - **全站参数表**：所有参数分组展示、可搜索、可编辑保存立即生效；专家模式可直改 YAML 原文
 - **事件日志**：抓取（含网页递归子链接、使用的代理）、测速、节点池变更、配置变更、系统操作，全站可检测数据均有记录，可按类型/结果筛选
 - **本机节点与 CF 隧道**：HTTP / SOCKS5 代理（纯标准库）+ Cloudflare Tunnel（token / 命名 / 快速三模式），可注入订阅
+- **端口复用（shared 模式）**：`localnode.mode=shared` 时 HTTP 代理与 Web 页面/API 共用**同一个端口**（适合 Waifly 等仅单端口的部署），Clash 客户端可直接把该地址当作 HTTP 代理节点
+- **一键复制本机节点信息**：本地节点页直接展示 HTTP/SOCKS5 代理链接，一键复制到 Clash 等客户端
+- **加载永不"卡死"**：前台请求带超时（`ui.request_timeout_seconds` 可配），超时/失败显示「加载失败·点击重试」；未登录时主页显示「未登录·点击登录」引导，不再一直转圈
 - **数据持久化与迁移**：配置/模板/节点池经可插拔存储层增量持久化，支持**文件存储（默认，零依赖）**与 **SQLite（`storage.driver=sqlite`，需 `npm install better-sqlite3`）**；导出/导入 JSON 一键迁移
 - **安全**：SSRF 防护（默认拦截内网）、令牌/账号鉴权、模板白名单、日志脱敏
 
@@ -105,7 +108,8 @@ npm start          # 默认 0.0.0.0:8080
 - **订阅源** `subscription.*`：主订阅地址、其他订阅源（`名称|URL`）、合并策略、缓存、默认格式、选取规则
 - **转换** `converter.*`：默认目标、去重、来源备注、过滤/重命名、Clash 策略组
 - **检测** `probe.*`：开关、并发、超时、上游探测代理（http/socks5，经代理 CONNECT 测连通，适合受限网络）、真实测速、追加延迟、剔除不可达
-- **本机节点** `localnode.*` 与 **隧道** `cf_tunnel.*`
+- **本机节点** `localnode.*`（含 `mode: standalone/shared` 端口复用）与 **隧道** `cf_tunnel.*`
+- **界面** `ui.*`：前台请求超时秒数
 - **安全** `security.*`：管理员/用户令牌与账号密码
 - **存储与日志** `storage.driver`、`fetch_log.capacity`、`logging.level`
 
@@ -159,7 +163,7 @@ npm test
 node scripts/smoke-api-test.js    # 接口冒烟（需本地服务 18081 运行，含 admin-token 环境）
 node scripts/smoke-ui-test.js     # 页面结构检查（需本地服务 18081 运行）
 python3 scripts/browser-ui-test.py  # 浏览器级 UI 测试（需 Playwright + 本地服务 18081 运行）
-python3 scripts/test-all-ui.py       # 全量浏览器级 UI 测试 56 项（含登录/三级模式/节点池/规则/质量/清理/备份/向导入口）
+python3 scripts/test-all-ui.py       # 全量浏览器级 UI 测试 67 项（含登录/三级模式/节点池/规则/质量/清理/备份/向导/复制节点/失败重试/未登录引导）
 python3 scripts/test-wizard-ui.py    # 一键配置向导流程测试 18 项（场景选择/订阅/开关/应用/完成页）
 python3 scripts/mock-sources.js      # 本地抓取测试源（订阅/base64/Clash/网页/vpngate 模拟，端口 18100）
 ```
