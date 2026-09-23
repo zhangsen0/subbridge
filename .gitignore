@@ -11,3 +11,7 @@ data/
 .DS_Store
 coverage/
 *.pid
+# 本地测试数据目录
+.test-sqlite/
+# 云盘部署包（单独上传云盘，不进仓库）
+subbridge-deploy.zip
