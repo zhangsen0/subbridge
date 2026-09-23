@@ -94,6 +94,15 @@ async function registerBackupApi(app, ctx) {
         }
       }
 
+      // 3.5 刷新节点池内存缓存（导入可能写入了 nodes.json）
+      if (ctx.nodePool && typeof ctx.nodePool.reload === 'function') {
+        try {
+          await ctx.nodePool.reload();
+        } catch (err) {
+          problems.push(`节点池刷新失败: ${err.message}`);
+        }
+      }
+
       // 4. 重启本地节点使新配置生效
       if (ctx.localnode) {
         try {

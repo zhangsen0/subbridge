@@ -56,6 +56,12 @@ class NodePool {
     await this.store.writeDataFile(POOL_FILE, JSON.stringify(data));
   }
 
+  /** 重新从磁盘加载（数据被外部写入后调用，如备份导入） */
+  async reload() {
+    this.cache = null;
+    return this.load();
+  }
+
   /**
    * 批量补充/更新节点（upsert，不删除任何既有节点）
    * @param {Array} nodes 统一节点模型数组
