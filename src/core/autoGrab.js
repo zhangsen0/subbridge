@@ -30,6 +30,24 @@ function nextCronMs(expr, from) {
   }
 }
 
+/**
+ * 解析 cron 表达式为最近一次触发时间（毫秒时间戳）。
+ * 触发判定以"上一次命中时刻"为准：next() 严格大于当前时间，若用 next 判定
+ * 会永远满足 now < next 导致定时永不触发；改用 prev() 且与上次运行时间比较。
+ * @param {string} expr cron 表达式
+ * @param {Date} [from] 起始时间
+ * @returns {number|null} 最近一次触发毫秒时间戳；非法表达式返回 null
+ */
+function previousCronMs(expr, from) {
+  try {
+    const interval = cronParser.parseExpression(String(expr).trim(), { currentDate: from || new Date() });
+    const prev = interval.prev().toDate();
+    return prev.getTime();
+  } catch {
+    return null;
+  }
+}
+
 class AutoGrab {
   /**
    * @param {object} ctx 运行上下文（config / sources / fetchLog / grabOne）
@@ -85,9 +103,10 @@ class AutoGrab {
     const cronExpr = cfg.grab && cfg.grab.auto_cron ? String(cfg.grab.auto_cron).trim() : '';
     if (cronExpr) {
       if (this._running) return;
-      const next = nextCronMs(cronExpr);
-      if (next == null) return; // 非法表达式不触发
-      if (Date.now() < next) return;
+      const prev = previousCronMs(cronExpr);
+      if (prev == null) return; // 非法表达式不触发
+      // 最近一次命中时刻已运行过则不重复触发（lastRunAt >= prev 说明本次已跑）
+      if (this._lastRunAt && new Date(this._lastRunAt).getTime() >= prev) return;
       await this.runNow();
       return;
     }
@@ -149,4 +168,4 @@ class AutoGrab {
   }
 }
 
-module.exports = { AutoGrab };
+module.exports = { AutoGrab, nextCronMs, previousCronMs };
