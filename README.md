@@ -48,7 +48,9 @@
 - **事件日志**：抓取（含网页递归子链接、使用的上游）、测速、节点池变更、配置变更、系统操作，全站可检测数据均有记录，可按类型/结果筛选
 - **节点接入能力**：可把部署主机作为订阅节点对外提供接入（HTTP / SOCKS5，纯标准库），支持端口复用（`localnode.mode=shared`，与 Web 同端口）与 Cloudflare Tunnel（token / 命名 / 快速三模式）；本地节点页展示接入信息并支持一键复制
 - **加载永不"卡死"**：前台请求带超时（`ui.request_timeout_seconds` 可配），超时/失败显示「加载失败·点击重试」；未登录时主页显示「未登录·点击登录」引导，不再一直转圈
-- **数据持久化与迁移**：配置/模板/节点池经可插拔存储层增量持久化，支持**文件存储（默认，零依赖）**与 **SQLite（`storage.driver=sqlite`，需 `npm install better-sqlite3`）**；导出/导入 JSON 一键迁移（含节点池）
+- **数据持久化与迁移**：配置/模板/节点池经可插拔存储层增量持久化，支持**文件存储（默认，零依赖）**与 **SQLite（`storage.driver=sqlite`，内置 sql.js 纯 WASM 实现，零原生编译、Node 14-22 全平台通用，无需 Python/gcc）**；导出/导入 JSON 一键迁移（含节点池）
+- **无人值守全自动**：一键开启「定时抓取（默认每日 00:00）+ 抓取后自动测速 + 自动删除不可用 + 定期清理」，可逐步开启/一键退出，生产可完全无人运行
+- **全协议抓取代理桥**：本机直连不通时可自动从节点池挑选可用节点（VLESS/Trojan/SS/SOCKS/HTTP 全协议）作为抓取上游并本地中转，先测速选优再使用，全部参数可配置
 - **安全**：SSRF 防护（默认拦截内网）、令牌/账号鉴权、模板白名单、日志脱敏
 
 ## 快速开始
@@ -81,6 +83,18 @@ npm start          # 默认 0.0.0.0:8080
 - 转换格式：链接加 `&target=clash|singbox|links|v2ray`
 - 规则取节点：链接加 `&rules=<JSON数组>`（也可在参数表配置 `subscription.rules`）
 - 含停用节点：`&include_disabled=1`；跳过检测：`&probe=0`
+
+### 无人值守全自动（生产一键托管）
+
+驾驶舱「无人值守全自动」卡片，或 `POST /api/auto-pilot/start`：
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/auto-pilot/start \
+  -H 'X-API-Token: 你的令牌' -H 'Content-Type: application/json' \
+  -d '{"steps":["cron","probe","remove","cleanup"],"cron":"0 0 * * *"}'
+```
+
+开启后：每日 00:00 自动抓取全部启用来源 → 抓取后自动测速 → 不可用自动删除 → 定期清理，全程无人值守；`POST /api/auto-pilot/stop` 一键退出。抓取源的获取策略默认「本机直连优先，失败自动改走节点池可用节点作为抓取上游（先测速选优）」。
 
 ## 接口速查
 
@@ -143,7 +157,18 @@ bash install.sh --port 8080 --token 你的令牌 --admin admin --password 你的
 # --docker 用 Docker 运行；--no-service 跳过 systemd；--dir /opt/subbridge 指定目录
 ```
 
-脚本行为：自动检测 x64/arm64 架构 → 缺 Node 时下载 Node18 LTS 到本地 runtime（不污染系统）→ `npm install`（Node<18 自动固定 undici@5.28.4）→ 生成 `.env` → 安装并启动 systemd 服务（或 nohup 后台）→ 输出后台地址 / 登录账号 / 访问令牌 / 订阅链接。
+脚本行为：自动检测 x64/arm64 架构 → 缺 Node 时下载 Node18 LTS 到本地 runtime（不污染系统）→ `npm install`（Node<18 自动固定 undici@5.28.4；SQLite 用 sql.js 零编译）→ 生成 `.env` → 安装并启动 systemd 服务（或 nohup 后台）→ 输出后台地址 / 登录账号 / 访问令牌 / 订阅链接。
+
+**零代码一键部署包**（免 git/免构建，适用旧系统 Node16 与受限环境）：下载 [subbridge-deploy.zip](https://cloud.520215.xyz/dav/wopan/OpenList/deploy/subbridge-deploy.zip) 解压到服务器目录（如 `/opt/subbridge`），进入目录执行：
+
+```bash
+cd /opt/subbridge && npm install --omit=dev --registry=https://registry.npmmirror.com
+# 用环境变量配置令牌与账号后启动
+SUBBRIDGE_API_TOKEN=你的令牌 SUBBRIDGE_ADMIN_USERNAME=admin SUBBRIDGE_ADMIN_PASSWORD=你的密码 node app.js
+# 或加入 systemd/pm2 守护；数据目录 ./data（含 SQLite）持久化即可
+```
+
+> 生产环境强烈建议切换 SQLite：在「全站参数 → 存储」设 `storage.driver=sqlite` 保存后重启，节点池/配置自动落盘 SQLite，服务重启不丢失。
 
 ### 方式二：Docker 自托管（生产推荐）
 
