@@ -208,25 +208,37 @@ function registerSourceApi(app, ctx) {
       ? ctx.taskManager.start({ type: 'grab', title: `批量抓取来源 ${items.length} 个`, total: items.length })
       : null;
     grabTask = (async () => {
-      const results = [];
-      // 顺序抓取，避免并发压垮节点池代理与源站（可配置并发后扩展）
+      // 并发抓取（grab.concurrency 配置化，默认 5）：提速且可控，避免长时间串行排队
+      const concurrency = Math.max(1, Number((ctx.config.grab || {}).concurrency) || 5);
+      const results = new Array(items.length);
+      const queue = items.map((item, i) => ({ item, i }));
       let done = 0;
-      for (const item of items) {
-        done += 1;
-        try {
-          results.push(await grabOne(item, { probe }));
-          if (task) ctx.taskManager.progress(task.id, { done, ok: results.filter((r) => r.ok).length, fail: results.filter((r) => !r.ok).length });
-        } catch (err) {
-          results.push({ id: item.id, url: item.url, ok: false, error: err.message });
-          if (task) ctx.taskManager.progress(task.id, { done, ok: results.filter((r) => r.ok).length, fail: results.filter((r) => !r.ok).length });
+      const progress = () => {
+        if (!task) return;
+        const ok = results.filter((r) => r && r.ok).length;
+        const fail = results.filter((r) => r && !r.ok).length;
+        ctx.taskManager.progress(task.id, { done, ok, fail });
+      };
+      const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (queue.length) {
+          const { item, i } = queue.shift();
+          done += 1;
+          try {
+            results[i] = await grabOne(item, { probe });
+          } catch (err) {
+            results[i] = { id: item.id, url: item.url, ok: false, error: err.message };
+          }
+          progress();
         }
-      }
-      const okCount = results.filter((r) => r.ok).length;
-      ctx.fetchLog.record({
-        type: 'grab', kind: 'sources', url: `批量抓取来源 ${results.length} 个（成功 ${okCount}）`,
-        nodes: results.reduce((a, r) => a + (r.parsed || 0), 0), error: '',
       });
-      if (task) ctx.taskManager.finish(task.id, { ok: okCount, fail: results.length - okCount, summary: `成功 ${okCount} 个 / 失败 ${results.length - okCount} 个，解析节点 ${results.reduce((a, r) => a + (r.parsed || 0), 0)}` });
+      await Promise.all(workers);
+      const flat = results.filter(Boolean);
+      const okCount = flat.filter((r) => r.ok).length;
+      ctx.fetchLog.record({
+        type: 'grab', kind: 'sources', url: `批量抓取来源 ${flat.length} 个（成功 ${okCount}）`,
+        nodes: flat.reduce((a, r) => a + (r.parsed || 0), 0), error: '',
+      });
+      if (task) ctx.taskManager.finish(task.id, { ok: okCount, fail: flat.length - okCount, summary: `成功 ${okCount} 个 / 失败 ${flat.length - okCount} 个，解析节点 ${flat.reduce((a, r) => a + (r.parsed || 0), 0)}` });
       grabRunning = false;
     })();
     return { ok: true, async: true, total: items.length, message: '抓取已后台启动，可在「后台任务」标签页查看实时进度' };

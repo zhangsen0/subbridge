@@ -581,7 +581,6 @@ function initSources() {
     $('panel-sources').classList.add('active');
     loadSources();
   });
-  $('src-new-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') addSource(); });
   loadAutoGrabStatus(); loadAutoPilot();
 }
 
@@ -835,6 +834,49 @@ function initAutoPilot() {
       toast('退出失败：' + err.message, true);
     }
   });
+}
+
+/* ---------- 后台任务（实时进度，5s 自动刷新） ---------- */
+let tasksTimer = null;
+async function loadTasks() {
+  const body = $('tasks-body');
+  const tag = $('tasks-tag');
+  try {
+    const d = await apiJson('/api/tasks');
+    if (tag) {
+      tag.textContent = d.running ? d.running + ' 运行中' : '空闲';
+      tag.className = 'tag' + (d.running ? ' ok' : '');
+    }
+    if (!body) return;
+    if (!d.tasks || !d.tasks.length) {
+      body.innerHTML = '<tr><td colspan="6" class="muted">暂无后台任务</td></tr>';
+      return;
+    }
+    body.innerHTML = d.tasks.map((t) => {
+      const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
+      const statusText = t.status === 'running' ? '运行中' : (t.status === 'done' ? '完成' : (t.status === 'fail' ? '失败' : t.status));
+      const statusCls = t.status === 'running' ? 'ok' : (t.status === 'done' ? 'ok' : (t.status === 'fail' ? 'err' : ''));
+      const summary = t.summary || (t.error ? String(t.error).slice(0, 80) : '');
+      return `<tr>
+        <td>${escapeHtml(t.title || t.id)}</td>
+        <td class="muted">${escapeHtml(t.type || '')}</td>
+        <td><span class="tag ${statusCls}">${statusText}</span></td>
+        <td>${t.total ? `${t.done}/${t.total}（${pct}%）` : t.status}</td>
+        <td class="muted">${escapeHtml(summary)}</td>
+        <td class="muted">${t.startedAt ? new Date(t.startedAt).toLocaleString() : ''}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    if (tag) { tag.textContent = '加载失败'; tag.className = 'tag err'; }
+    if (body) body.innerHTML = `<tr><td colspan="6" class="muted">加载失败：${escapeHtml(err.message)} · <a href="#" onclick="loadTasks();return false">重试</a></td></tr>`;
+  }
+}
+function initTasks() {
+  loadTasks();
+  const btn = $('btn-tasks-refresh');
+  if (btn) btn.addEventListener('click', loadTasks);
+  if (tasksTimer) clearInterval(tasksTimer);
+  tasksTimer = setInterval(() => { if (!document.hidden) loadTasks(); }, 5000);
 }
 
 /* ---------- 专家调试 ---------- */
@@ -1895,7 +1937,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!getToken()) { location.replace('/login'); return; }
   // 逐个初始化并隔离异常：单个模块出错不阻断其余功能（含登录态识别）
   const steps = [
-    ['主题', initTheme], ['折叠', initCollapse], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab], ['无人值守', initAutoPilot],
+    ['主题', initTheme], ['折叠', initCollapse], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab], ['无人值守', initAutoPilot], ['后台任务', initTasks],
     ['源管理', initSources], ['调试', initDebug], ['节点库', initPool], ['规则', initRules], ['质量', initQuality],
     ['清理', initCleanup], ['日志', initLogs], ['本地节点', initLocalNode], ['配置', initConfig],
     ['模板', initTemplates], ['备份', initBackup],

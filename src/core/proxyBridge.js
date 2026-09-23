@@ -110,7 +110,7 @@ function parseAddrHead(buf, offset = 0, style) {
 }
 
 /** 建立 TCP 连接（带超时） */
-function tcpConnect(host, port, timeoutMs = 10000) {
+function tcpConnect(host, port, timeoutMs = 6000) {
   return new Promise((resolve, reject) => {
     const sock = net.connect({ host, port });
     const timer = setTimeout(() => {

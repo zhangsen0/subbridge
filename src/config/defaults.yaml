@@ -284,6 +284,8 @@ grab:
   max_links: 20
   # 判定"订阅链接"的路径特征关键词（命中即尝试递归抓取）
   link_keywords: ["sub", "subscribe", "client", "api", "token", "node", "v2ray", "clash", "config"]
+  # 批量抓取来源的并发数（默认 5；调大可提速，注意源站与代理承受能力）
+  concurrency: 5
   # 自动采集：间隔（分钟），0=关闭；开启后定时抓取全部"启用且参与采集"的来源
   auto_interval_minutes: 0
   # 自动采集 cron 表达式（优先级高于间隔），如 "0 0 * * *"=每天 00:00；留空则用 auto_interval_minutes
