@@ -20,6 +20,19 @@ function nodeKey(node) {
   return `${node.type}:${node.server}:${node.port}`;
 }
 
+/** 兼容旧数据：ws 类型节点缺少 wsHost 时，从 raw 链接补全（早期版本未存该字段，缺了会导致
+ *  Clash 转换时 ws-opts Host 头为空、节点全部无法连接） */
+function backfillWsHost(n) {
+  if (!n || n.wsHost || !n.raw || (n.network !== 'ws' && n.network !== 'grpc')) return n;
+  try {
+    if (/^[a-z]+:\/\//i.test(n.raw)) {
+      const u = new URL(n.raw);
+      n.wsHost = u.searchParams.get('host') || '';
+    }
+  } catch { /* 非标准 URL 跳过 */ }
+  return n;
+}
+
 class NodePool {
   /**
    * @param {object} store 存储层实例（含 readDataFile / writeDataFile）
@@ -46,6 +59,8 @@ class NodePool {
         data = {};
       }
     }
+    // 旧数据字段补全（wsHost 等），修复历史节点无法连接
+    for (const key of Object.keys(data)) backfillWsHost(data[key]);
     this.cache = data;
     return data;
   }

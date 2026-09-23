@@ -10,6 +10,17 @@
 
 const yaml = require('js-yaml');
 const { ensureUniqueNames } = require('./uniqueNames');
+
+/** 兜底：节点缺 wsHost 时从 raw 链接提取（兼容旧数据） */
+function effectiveWsHost(n) {
+  if (n.wsHost) return n.wsHost;
+  if (!n.raw || !/^[a-z]+:\/\//i.test(n.raw)) return '';
+  try {
+    return new URL(n.raw).searchParams.get('host') || '';
+  } catch {
+    return '';
+  }
+}
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { cleanUndefined } = require('../core/util');
@@ -63,10 +74,10 @@ function toClashProxy(n, opts) {
         cipher: n.cipher || 'auto',
         tls: !!n.tls,
         'skip-cert-verify': n.skipCertVerify || undefined,
-        servername: n.sni || n.wsHost || undefined,
+        servername: n.sni || effectiveWsHost(n) || undefined,
         network: n.network || 'tcp',
         'ws-opts': n.network === 'ws' && (n.wsPath || n.wsHost)
-          ? cleanUndefined({ path: n.wsPath || undefined, headers: n.wsHost ? { Host: n.wsHost } : undefined })
+          ? cleanUndefined({ path: n.wsPath || undefined, headers: effectiveWsHost(n) ? { Host: effectiveWsHost(n) } : undefined })
           : undefined,
         'client-fingerprint': n.fingerprint || undefined,
       });
@@ -78,10 +89,10 @@ function toClashProxy(n, opts) {
         flow: n.flow || undefined,
         tls: !!n.tls,
         'skip-cert-verify': n.skipCertVerify || undefined,
-        servername: n.sni || n.wsHost || undefined,
+        servername: n.sni || effectiveWsHost(n) || undefined,
         network: n.network || 'tcp',
         'ws-opts': n.network === 'ws' && (n.wsPath || n.wsHost)
-          ? cleanUndefined({ path: n.wsPath || undefined, headers: n.wsHost ? { Host: n.wsHost } : undefined })
+          ? cleanUndefined({ path: n.wsPath || undefined, headers: effectiveWsHost(n) ? { Host: effectiveWsHost(n) } : undefined })
           : undefined,
         'reality-opts': n.extras && n.extras.reality
           ? cleanUndefined({
@@ -101,7 +112,7 @@ function toClashProxy(n, opts) {
         'skip-cert-verify': n.skipCertVerify || undefined,
         network: n.network || 'tcp',
         'ws-opts': n.network === 'ws' && (n.wsPath || n.wsHost)
-          ? cleanUndefined({ path: n.wsPath || undefined, headers: n.wsHost ? { Host: n.wsHost } : undefined })
+          ? cleanUndefined({ path: n.wsPath || undefined, headers: effectiveWsHost(n) ? { Host: effectiveWsHost(n) } : undefined })
           : undefined,
         'client-fingerprint': n.fingerprint || undefined,
       });
