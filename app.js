@@ -23,10 +23,12 @@ async function main() {
   app.log.info(`SubBridge 已启动: http://${host}:${port}`);
 
   // 4. 优雅退出（Docker / PaaS 平台发送 SIGTERM 时平滑关闭）
+  //    后台抓取/测速任务不再阻塞请求，close 只等 in-flight 请求；
+  //    加 10s 超时兜底，防止个别长任务拖住收尾导致 systemd 卡在 stopping。
   const shutdown = async (signal) => {
     app.log.info(`收到信号 ${signal}，正在关闭服务...`);
     try {
-      await app.close();
+      await Promise.race([app.close(), new Promise((r) => setTimeout(r, 10000))]);
     } finally {
       process.exit(0);
     }

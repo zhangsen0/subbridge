@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================
-# SubBridge 一键部署脚本
+# SubBridge 一键部署与运维脚本
 # 支持平台：Linux (x86_64 / arm64 / armv7) · macOS (Intel / Apple Silicon)
 # 支持模式：① 本机直跑（自动装 Node、依赖、可选 systemd 服务）
 #           ② Docker Compose（--docker）
 # 用法：
 #   curl -fsSL https://raw.githubusercontent.com/zhangsen0/subbridge/main/install.sh | bash
 #   bash install.sh [--port 8080] [--token <令牌>] [--admin <用户名>] [--password <密码>] [--docker] [--no-service]
+#   bash install.sh <运维命令>    # restart / start / stop / status / logs / update / doctor / backup / help
 # 参数全配置化；未传参数时自动生成安全随机值。中文注释，符合项目规范。
 # =============================================================
 set -euo pipefail
@@ -22,22 +23,8 @@ USE_SERVICE=1
 INSTALL_DIR="${SUBBRIDGE_DIR:-$(pwd)}"
 
 usage() {
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
 }
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --port) PORT="$2"; shift 2 ;;
-    --token) TOKEN="$2"; shift 2 ;;
-    --admin) ADMIN_USER="$2"; shift 2 ;;
-    --password) ADMIN_PASS="$2"; shift 2 ;;
-    --docker) USE_DOCKER=1; shift ;;
-    --no-service) USE_SERVICE=0; shift ;;
-    --dir) INSTALL_DIR="$2"; shift 2 ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "未知参数: $1"; usage; exit 1 ;;
-  esac
-done
 
 # ---------- 工具函数 ----------
 log()  { echo -e "\033[1;32m[SubBridge]\033[0m $*"; }
@@ -70,12 +57,23 @@ detect_arch() {
   esac
 }
 
+# 读取 .env 中的配置项（仅导出已定义的键）
+load_env() {
+  if [[ -f "$INSTALL_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$INSTALL_DIR/.env"
+    set +a
+  fi
+}
+
 # ---------- Docker 模式（优先、最省心） ----------
-if [[ "$USE_DOCKER" == "1" ]]; then
+docker_start() {
   command -v docker >/dev/null 2>&1 || fail "未检测到 Docker，请先安装 Docker 或改用本机直跑模式。"
   TOKEN="${TOKEN:-$(gen_token)}"
   ADMIN_PASS="${ADMIN_PASS:-$(gen_token | tr -d '-' | head -c 12)}"
   log "Docker 一键启动（端口 ${PORT}）..."
+  docker rm -f subbridge >/dev/null 2>&1 || true
   docker run -d --name subbridge --restart unless-stopped \
     -p "${PORT}:8080" \
     -e PORT=8080 \
@@ -98,10 +96,188 @@ if [[ "$USE_DOCKER" == "1" ]]; then
   echo "  登录账号 : ${ADMIN_USER}"
   echo "  登录密码 : ${ADMIN_PASS}"
   echo "  访问令牌 : ${TOKEN}"
+}
+
+# ---------- 运维命令 ----------
+service_cmd() {
+  # 子命令：restart / start / stop / status / logs / update / doctor / backup
+  local cmd="${1:-help}"
+  case "$cmd" in
+    restart|start|stop|status)
+      if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files subbridge.service >/dev/null 2>&1; then
+        systemctl "$cmd" subbridge
+        if [[ "$cmd" == "status" ]]; then
+          systemctl is-active subbridge || true
+          systemctl status subbridge --no-pager | tail -8 || true
+        else
+          sleep 2
+          systemctl is-active subbridge >/dev/null 2>&1 \
+            && log "服务已${cmd}，健康检查: $(curl -s -m 5 "http://127.0.0.1:${PORT}/ping" 2>/dev/null || echo 超时)" \
+            || warn "服务状态异常，请用 journalctl -u subbridge 排查"
+        fi
+      else
+        # 无 systemd：nohup 模式（记录 PID）
+        local pid_file="$INSTALL_DIR/.subbridge.pid"
+        case "$cmd" in
+          start)
+            if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+              warn "服务已在运行（PID $(cat "$pid_file")）"
+            else
+              load_env
+              local node_bin
+              node_bin="$(command -v node)"
+              [[ -x "$INSTALL_DIR/runtime/bin/node" ]] && node_bin="$INSTALL_DIR/runtime/bin/node"
+              cd "$INSTALL_DIR"
+              nohup env "$(grep -v '^#' .env 2>/dev/null | xargs)" "${node_bin}" app.js > app.log 2>&1 &
+              echo $! > "$pid_file"
+              disown || true
+              sleep 2
+              log "服务已后台启动，健康检查: $(curl -s -m 5 "http://127.0.0.1:${PORT}/ping" 2>/dev/null || echo 超时)"
+            fi
+            ;;
+          stop)
+            if [[ -f "$pid_file" ]]; then
+              kill "$(cat "$pid_file")" 2>/dev/null || true
+              rm -f "$pid_file"
+              log "服务已停止"
+            else
+              pkill -f "node app.js" 2>/dev/null || true
+              log "已尝试停止 node app.js 进程"
+            fi
+            ;;
+          restart)
+            bash "$0" stop || true
+            sleep 1
+            bash "$0" start
+            ;;
+          status)
+            if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+              log "服务运行中（PID $(cat "$pid_file")）"
+            else
+              warn "服务未运行"
+            fi
+            ;;
+        esac
+      fi
+      ;;
+    logs)
+      # 排查问题：查看日志；-f 跟踪
+      if command -v journalctl >/dev/null 2>&1 && systemctl list-unit-files subbridge.service >/dev/null 2>&1; then
+        if [[ "${2:-}" == "-f" ]]; then journalctl -u subbridge -f; else journalctl -u subbridge -n "${3:-100}" --no-pager; fi
+      else
+        local log_file="$INSTALL_DIR/app.log"
+        [[ -f "$log_file" ]] || fail "未找到日志文件 $log_file（服务未以 nohup 模式运行过）"
+        if [[ "${2:-}" == "-f" ]]; then tail -f "$log_file"; else tail -n "${3:-100}" "$log_file"; fi
+      fi
+      ;;
+    update)
+      # 更新代码：git pull → 依赖 → 重启
+      cd "$INSTALL_DIR"
+      [[ -d .git ]] || fail "未找到 git 仓库，无法自动更新。请手动覆盖代码或重新部署。"
+      command -v git >/dev/null 2>&1 || fail "需要 git 才能更新。"
+      log "拉取最新代码..."
+      git pull --rebase || git fetch origin main && git reset --hard origin/main
+      log "安装依赖..."
+      npm install --omit=dev --no-audit --no-fund
+      local node_major
+      node_major="$(node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
+      if [[ "$node_major" -lt 18 ]]; then
+        log "Node <18：固定 undici@5.28.4（v6+ 需 Node18+）..."
+        npm install undici@5.28.4 --save-exact --omit=dev --no-audit --no-fund
+      fi
+      log "重启服务..."
+      bash "$0" restart
+      log "更新完成！"
+      ;;
+    doctor)
+      # 全站自检：Node / 依赖 / 端口 / 配置 / 数据目录 / 服务状态 / 常见问题
+      echo "========== SubBridge 环境自检 =========="
+      echo "[1/7] Node 版本: $(command -v node >/dev/null 2>&1 && node -v || echo 未安装)"
+      if [[ -x "$INSTALL_DIR/runtime/bin/node" ]]; then echo "      独立 runtime: $($INSTALL_DIR/runtime/bin/node -v)"; fi
+      echo "[2/7] 依赖检查:"
+      cd "$INSTALL_DIR"
+      for dep in undici ws js-yaml fastify sql.js better-sqlite3; do
+        if [[ -d "node_modules/$dep" ]]; then
+          local ver
+          ver="$(node -e "console.log(require('./node_modules/$dep/package.json').version)" 2>/dev/null || echo ?)"
+          echo "      ✓ $dep@$ver"
+        else
+          echo "      ✗ $dep 未安装"
+        fi
+      done
+      echo "[3/7] 端口占用: $(curl -s -m 3 "http://127.0.0.1:${PORT}/ping" 2>/dev/null && echo '服务可访问' || echo '未响应（可能未启动或端口不对）')"
+      echo "[4/7] 配置文件: $([[ -f "$INSTALL_DIR/.env" ]] && echo "存在 ($INSTALL_DIR/.env)" || echo '不存在（首次部署会自动生成）')"
+      echo "[5/7] 数据目录: $([[ -d "$INSTALL_DIR/data" ]] && echo "$(du -sh "$INSTALL_DIR/data" 2>/dev/null | cut -f1) ($INSTALL_DIR/data)" || echo '不存在（启动后自动创建）')"
+      if [[ -f "$INSTALL_DIR/data/subbridge.sqlite" ]]; then echo "      SQLite 数据: $(du -h "$INSTALL_DIR/data/subbridge.sqlite" | cut -f1)"; fi
+      echo "[6/7] 服务状态:"
+      if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files subbridge.service >/dev/null 2>&1; then
+        systemctl is-active subbridge || true
+      else
+        [[ -f "$INSTALL_DIR/.subbridge.pid" ]] && echo "      nohup 模式 PID: $(cat "$INSTALL_DIR/.subbridge.pid")"
+      fi
+      echo "[7/7] 最近日志:"
+      if command -v journalctl >/dev/null 2>&1 && systemctl list-unit-files subbridge.service >/dev/null 2>&1; then
+        journalctl -u subbridge -n 5 --no-pager | tail -5 || true
+      elif [[ -f "$INSTALL_DIR/app.log" ]]; then
+        tail -5 "$INSTALL_DIR/app.log"
+      fi
+      echo "========================================"
+      echo "常见问题排查提示："
+      echo "  1) 服务无法启动 → bash install.sh logs  查看日志"
+      echo "  2) 端口被占用   → 修改 PORT 后 bash install.sh restart"
+      echo "  3) 页面打不开   → 确认防火墙放行 ${PORT} 端口"
+      echo "  4) 抓取全部超时 → 生产若无法直连境外，在后台「全站参数→抓取」配置池内节点抓取或上游代理"
+      ;;
+    backup)
+      # 导出备份（含节点池）：调用 /api/backup
+      load_env
+      local token="${SUBBRIDGE_API_TOKEN:-}"
+      [[ -z "$token" ]] && fail "未找到 SUBBRIDGE_API_TOKEN，请在 .env 中配置或先部署一次。"
+      local out="$INSTALL_DIR/subbridge-backup-$(date +%Y%m%d-%H%M%S).json"
+      curl -s -m 30 -H "X-API-Token: ${token}" "http://127.0.0.1:${PORT}/api/backup" -o "$out"
+      if head -c 1 "$out" | grep -q '{' 2>/dev/null; then
+        log "备份完成：$out（$(du -h "$out" | cut -f1)）"
+      else
+        rm -f "$out"
+        fail "备份失败，请确认服务运行与令牌正确。"
+      fi
+      ;;
+    help|-h|--help) usage ;;
+    *) warn "未知运维命令：$cmd"; usage; exit 1 ;;
+  esac
+}
+
+# ---------- 参数解析（先收集参数，再判断是否为运维命令） ----------
+# 若第一个参数是运维命令（restart/start/stop/status/logs/update/doctor/backup/help），走运维分支
+OPS_CMD="${1:-}"
+case "$OPS_CMD" in
+  restart|start|stop|status|logs|update|doctor|backup|help|-h|--help)
+    service_cmd "$@"
+    exit 0
+    ;;
+esac
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port) PORT="$2"; shift 2 ;;
+    --token) TOKEN="$2"; shift 2 ;;
+    --admin) ADMIN_USER="$2"; shift 2 ;;
+    --password) ADMIN_PASS="$2"; shift 2 ;;
+    --docker) USE_DOCKER=1; shift ;;
+    --no-service) USE_SERVICE=0; shift ;;
+    --dir) INSTALL_DIR="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "未知参数: $1"; usage; exit 1 ;;
+  esac
+done
+
+# ---------- Docker 模式 ----------
+if [[ "$USE_DOCKER" == "1" ]]; then
+  docker_start
   exit 0
 fi
 
-# ---------- 本机直跑模式 ----------
+# ---------- 本机直跑模式（首次安装 / 重新部署） ----------
 cd "$INSTALL_DIR"
 if [[ ! -f package.json ]]; then
   log "未找到 package.json，正在克隆项目..."
@@ -144,28 +320,19 @@ if [[ -z "$NODE_BIN" ]]; then
 fi
 log "使用 Node：$($NODE_BIN -v)"
 
-# 安装依赖（含版本兼容：旧 Node 自动降级关键原生依赖）
+# 安装依赖（含版本兼容：旧 Node 自动降级关键依赖）
 NODE_MAJOR="$(node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
 log "安装依赖（npm install --omit=dev）..."
 npm install --omit=dev --no-audit --no-fund
 
-# ---------- 原生依赖版本兼容（保证老系统也能跑，全部可配置） ----------
+# ---------- 版本兼容（保证老系统也能跑，全部可配置） ----------
 # undici：Node<18 用 5.28.4（v6+ 要求 Node18+），否则用默认
 if [[ "$NODE_MAJOR" -lt 18 ]]; then
   log "Node <18：固定 undici@5.28.4（v6+ 需 Node18+）..."
   npm install undici@5.28.4 --save-exact --omit=dev --no-audit --no-fund
 fi
-# better-sqlite3（内置 SQLite 驱动）：
-#   Node<18（如 CentOS7 + Node16，glibc 2.17 / gcc 4.8）→ 8.7.0（有 Node16 预编译包，C++11）
-#   Node>=18 → 9.6.0（有 Node18+ 预编译包，C++17）
-# 通过环境变量 SUBBRIDGE_SQLITE_VERSION 可覆盖，留空按 Node 版本自动选择
-SQLITE_VERSION="${SUBBRIDGE_SQLITE_VERSION:-}"
-if [[ -z "$SQLITE_VERSION" ]]; then
-  if [[ "$NODE_MAJOR" -lt 18 ]]; then SQLITE_VERSION="8.7.0"; else SQLITE_VERSION="9.6.0"; fi
-fi
-log "固定 better-sqlite3@${SQLITE_VERSION}（Node${NODE_MAJOR} 兼容版本）..."
-npm install "better-sqlite3@${SQLITE_VERSION}" --save-exact --omit=dev --no-audit --no-fund 2>/dev/null \
-  || npm install "better-sqlite3@${SQLITE_VERSION}" --save-exact --omit=dev --no-audit --no-fund --build-from-source
+# SQLite：内置 sql.js（纯 WASM，零原生编译，Node 14-22 全平台通用）。
+# 无需 better-sqlite3 / python3 / gcc，老系统（CentOS7+Node16）开箱即用。
 
 # 生成 .env（参数全配置化；已存在则保留用户配置）
 TOKEN="${TOKEN:-$(gen_token)}"
@@ -200,6 +367,7 @@ EnvironmentFile=$(pwd)/.env
 ExecStart=${start_cmd}
 Restart=always
 RestartSec=3
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target
@@ -210,10 +378,11 @@ EOF
   sleep 2
   systemctl is-active subbridge >/dev/null 2>&1 \
     && log "systemd 服务已启动" \
-    || warn "systemd 服务启动失败，请查看 journalctl -u subbridge"
+    || warn "systemd 服务启动失败，请用 bash install.sh logs 排查"
 else
-  log "后台启动服务（nohup）..."
+  log "后台启动服务（nohup，PID 记录到 .subbridge.pid）..."
   nohup env "$(cat .env | xargs)" "${NODE_BIN}" app.js > app.log 2>&1 &
+  echo $! > .subbridge.pid
   disown || true
   sleep 2
 fi
@@ -230,6 +399,14 @@ echo "  登录密码 : ${ADMIN_PASS}"
 echo "  访问令牌 : ${TOKEN}"
 echo "  数据目录 : $(pwd)/data"
 echo "  日志文件 : $(pwd)/app.log"
+echo "--------------------------------------------------------------"
+echo " 常用运维命令（本脚本）："
+echo "  bash install.sh restart   # 重启服务"
+echo "  bash install.sh status    # 查看状态"
+echo "  bash install.sh logs      # 查看日志（排查问题）"
+echo "  bash install.sh update    # 更新代码并重启"
+echo "  bash install.sh doctor    # 环境自检"
+echo "  bash install.sh backup    # 导出数据备份"
 echo "--------------------------------------------------------------"
 echo " 订阅链接（登录后驾驶舱顶部可复制）：http://127.0.0.1:${PORT}/sub?token=${TOKEN}"
 echo "================================================================"

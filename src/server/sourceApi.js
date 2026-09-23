@@ -19,6 +19,9 @@ const { nodeKey } = require('../core/nodePool');
 
 function registerSourceApi(app, ctx) {
   const sources = ctx.sources;
+  // 后台抓取状态：避免同步串行抓取阻塞 API 与重启收尾（async=true 立即返回，后台逐源执行）
+  let grabRunning = false;
+  let grabTask = null;
 
   /**
    * 抓取后自动清理：删除本次入库节点中"已测且不可用"的节点。
@@ -129,6 +132,7 @@ function registerSourceApi(app, ctx) {
   });
 
   // 抓取（ids 缺省=全部启用项；probe=true 抓取并测速）
+  // 异步执行：立即返回，后台逐源抓取（避免同步串行阻塞请求与进程收尾，无人值守场景必备）
   app.post('/api/sources/grab', async (req, reply) => {
     const body = req.body || {};
     let items = sources.list().filter((s) => s.enabled !== false);
@@ -137,19 +141,28 @@ function registerSourceApi(app, ctx) {
       items = items.filter((s) => idSet.has(s.id));
     }
     if (!items.length) return reply.code(400).send({ error: '没有可抓取的启用来源，请先在源管理中添加' });
+    if (grabRunning) return reply.code(409).send({ error: '已有抓取任务运行中，请等待完成后再触发' });
 
     const probe = body.probe === true;
-    const results = [];
-    // 顺序抓取，避免并发压垮节点池代理与源站（可配置并发后扩展）
-    for (const item of items) {
-      results.push(await grabOne(item, { probe }));
-    }
-    const okCount = results.filter((r) => r.ok).length;
-    ctx.fetchLog.record({
-      type: 'grab', kind: 'sources', url: `批量抓取来源 ${results.length} 个（成功 ${okCount}）`,
-      nodes: results.reduce((a, r) => a + (r.parsed || 0), 0), error: '',
-    });
-    return { ok: true, total: results.length, okCount, results };
+    grabRunning = true;
+    grabTask = (async () => {
+      const results = [];
+      // 顺序抓取，避免并发压垮节点池代理与源站（可配置并发后扩展）
+      for (const item of items) {
+        try {
+          results.push(await grabOne(item, { probe }));
+        } catch (err) {
+          results.push({ id: item.id, url: item.url, ok: false, error: err.message });
+        }
+      }
+      const okCount = results.filter((r) => r.ok).length;
+      ctx.fetchLog.record({
+        type: 'grab', kind: 'sources', url: `批量抓取来源 ${results.length} 个（成功 ${okCount}）`,
+        nodes: results.reduce((a, r) => a + (r.parsed || 0), 0), error: '',
+      });
+      grabRunning = false;
+    })();
+    return { ok: true, async: true, total: items.length, message: '抓取已后台启动，进度可在源管理/事件日志查看' };
   });
 
   // 自动采集状态
