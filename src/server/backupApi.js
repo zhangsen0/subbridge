@@ -16,7 +16,8 @@ const pkg = require('../../package.json');
 const { replaceConfig } = require('../config/loader');
 
 // 备份中允许恢复的生成文件（数据目录下，经存储层读写）
-const KNOWN_FILES = ['cf-tunnel.yml'];
+// 备份/迁移白名单数据文件：节点池（nodes.json）+ 隧道配置等
+const KNOWN_FILES = ['nodes.json', 'cf-tunnel.yml'];
 
 /** 注册备份与迁移路由 */
 async function registerBackupApi(app, ctx) {
