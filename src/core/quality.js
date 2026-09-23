@@ -125,4 +125,22 @@ async function applyGatesToPool(nodePool, gates, { mode = 'all', defaultPass = t
   return { checked: nodes.length, disabled: toDisable.length, enabled: toEnable.length };
 }
 
-module.exports = { parseGates, evaluateGates, qualityScore, applyGatesToPool };
+/**
+ * 节点是否可用（一键"测速并自动过滤 / 删除不可用节点"的判定标准）
+ * @param {object} n 节点（含 probe 字段）
+ * @param {{maxLatencyMs?: number, keepUnprobed?: boolean}} opts
+ *   maxLatencyMs 延迟上限（毫秒）；keepUnprobed 未测节点是否视为可用（默认保留，避免误删刚入库节点）
+ * @returns {boolean}
+ */
+function isNodeUsable(n, opts = {}) {
+  const maxMs = opts.maxLatencyMs > 0 ? opts.maxLatencyMs : 1000;
+  const keepUnprobed = opts.keepUnprobed !== false;
+  const probe = n && n.probe;
+  if (!probe) return keepUnprobed;
+  if (probe.alive === false) return false;
+  // 延迟超过上限视为不可用（TCP 通但延迟极高也不可用）
+  if (typeof probe.latencyMs === 'number' && probe.latencyMs > maxMs) return false;
+  return true;
+}
+
+module.exports = { parseGates, evaluateGates, qualityScore, applyGatesToPool, isNodeUsable };

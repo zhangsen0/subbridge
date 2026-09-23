@@ -620,6 +620,47 @@ function initPool() {
     }
   });
 
+  // 一键：测速并自动过滤（停用不可用节点）
+  $('btn-pool-filter').addEventListener('click', async () => {
+    const btn = $('btn-pool-filter');
+    const orig = btn.textContent;
+    btn.textContent = '过滤中...';
+    btn.disabled = true;
+    try {
+      const d = await apiJson('/api/pool/filter', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      toast(`过滤完成：测速 ${d.tested} 个，可用 ${d.usable} 个，自动停用 ${d.disabled} 个不可用节点`);
+      loadPool();
+      loadDashboard();
+      if (currentRole === 'admin') loadLogs(true);
+    } catch (err) {
+      toast('过滤失败：' + err.message, true);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+
+  // 一键：删除不可用节点
+  $('btn-pool-prune').addEventListener('click', async () => {
+    const btn = $('btn-pool-prune');
+    const orig = btn.textContent;
+    if (!window.confirm('将删除当前判定为不可用（探测失败或延迟超阈值）的节点，确定？')) return;
+    btn.textContent = '删除中...';
+    btn.disabled = true;
+    try {
+      const d = await apiJson('/api/pool/prune', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      toast(`已删除 ${d.removed} 个不可用节点`);
+      loadPool();
+      loadDashboard();
+      if (currentRole === 'admin') loadLogs(true);
+    } catch (err) {
+      toast('删除失败：' + err.message, true);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+
   $('btn-pool-clear').addEventListener('click', async () => {
     if (!window.confirm('确定清空整个节点池？该操作不可恢复。')) return;
     try {

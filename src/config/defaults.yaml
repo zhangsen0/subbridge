@@ -231,6 +231,10 @@ pool:
   quality_gates: []
   # 自动清理（自定义删除逻辑）：默认关闭（保留全部节点）；开启后按 cleanup_rules 自动删除
   cleanup_enabled: false
+  # 一键「测速并自动过滤 / 删除不可用节点」的延迟上限（毫秒），超过视为不可用
+  filter_max_latency_ms: 1000
+  # 未测节点（无探测数据）是否视为可用并保留（默认保留，避免误删刚入库的节点）
+  filter_keep_unprobed: true
   # 清理规则（JSON/YAML 数组，满足任一规则即删除；每条可加 enabled:false 停用），示例：
   #   - { type: "unreachable" }
   #   - { type: "stale", days: 7 }

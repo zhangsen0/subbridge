@@ -145,6 +145,84 @@ function registerPoolApi(app, ctx) {
     return { ok: true, ...c };
   });
 
+  // 一键：测速并自动过滤（停用不可用节点；未测节点默认保留）
+  // 判定标准：不可用 = 探测失败（alive=false）或延迟超过 pool.filter_max_latency_ms（默认 1000ms）
+  app.post('/api/pool/filter', async (req, reply) => {
+    const body = req.body || {};
+    const keys = Array.isArray(body.keys) ? body.keys : [];
+    let nodes = await ctx.nodePool.list();
+    if (keys.length) nodes = nodes.filter((n) => keys.includes(`${n.type}:${n.server}:${n.port}`));
+    if (!nodes.length) return { tested: 0, usable: 0, disabled: 0, disabledKeys: [] };
+
+    const probeCfg = (ctx.config.probe || {});
+    const { checkNode } = require('../probe/checker');
+    const checked = await Promise.all(
+      nodes.map((n) =>
+        checkNode({ ...n }, {
+          timeoutMs: probeCfg.timeout_ms || 3000,
+          speedTest: !!probeCfg.speed_test,
+          speedTestUrl: probeCfg.speed_test_url,
+          speedTestBytes: probeCfg.speed_test_bytes,
+          proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
+        }),
+      ),
+    );
+
+    // 写回检测结果
+    const probeMap = {};
+    for (const n of checked) {
+      if (n.probe) probeMap[`${n.type}:${n.server}:${n.port}`] = n.probe;
+    }
+    await ctx.nodePool.updateProbe(probeMap);
+
+    const { isNodeUsable } = require('../core/quality');
+    const poolCfg = (ctx.config.pool || {});
+    const maxMs = Number(poolCfg.filter_max_latency_ms) > 0 ? Number(poolCfg.filter_max_latency_ms) : 1000;
+    const keepUnprobed = poolCfg.filter_keep_unprobed !== false;
+    const toDisable = [];
+    const usable = [];
+    for (const n of checked) {
+      const usableFlag = isNodeUsable(n, { maxLatencyMs: maxMs, keepUnprobed });
+      if (usableFlag) usable.push(n);
+      else if (n.enabled !== false) toDisable.push(`${n.type}:${n.server}:${n.port}`);
+    }
+    const disabled = toDisable.length ? await ctx.nodePool.bulkSetEnabled(toDisable.map((k) => [k, false])) : 0;
+
+    ctx.fetchLog.record({
+      type: 'probe', kind: 'filter',
+      url: keys.length ? `过滤 ${keys.length} 个` : '过滤全部节点',
+      nodes: checked.length, alive: usable.length, error: '',
+    });
+
+    return {
+      tested: checked.length,
+      usable: usable.length,
+      disabled,
+      disabledKeys: toDisable,
+    };
+  });
+
+  // 一键：删除不可用节点（判定同 /api/pool/filter）
+  app.post('/api/pool/prune', async (req, reply) => {
+    const body = req.body || {};
+    const keys = Array.isArray(body.keys) ? body.keys : [];
+    let nodes = await ctx.nodePool.list();
+    if (keys.length) nodes = nodes.filter((n) => keys.includes(`${n.type}:${n.server}:${n.port}`));
+    const poolCfg = (ctx.config.pool || {});
+    const maxMs = Number(poolCfg.filter_max_latency_ms) > 0 ? Number(poolCfg.filter_max_latency_ms) : 1000;
+    const keepUnprobed = poolCfg.filter_keep_unprobed !== false;
+    const { isNodeUsable } = require('../core/quality');
+    const toRemove = nodes
+      .filter((n) => !isNodeUsable(n, { maxLatencyMs: maxMs, keepUnprobed }))
+      .map((n) => `${n.type}:${n.server}:${n.port}`);
+    const removed = toRemove.length ? await ctx.nodePool.remove(toRemove) : 0;
+    ctx.fetchLog.record({
+      type: 'probe', kind: 'prune',
+      url: `删除不可用节点 ${removed} 个`, nodes: removed, alive: 0, error: '',
+    });
+    return { removed, removedKeys: toRemove };
+  });
+
   // 手动删除节点
   app.post('/api/pool/remove', async (req, reply) => {
     const keys = Array.isArray(req.body && req.body.keys) ? req.body.keys : [];
