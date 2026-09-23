@@ -344,6 +344,8 @@ function sourceLabel(source) {
 function validate(query, config) {
   const opts = buildOptions(query, config);
   if (!opts.target) return '缺少目标格式';
+  // 兼容分隔写法（target=clash|singbox|links|v2ray），取第一个有效值
+  if (/[|,]/.test(opts.target)) opts.target = opts.target.split(/[|,]/)[0].trim();
   if (!converters.TARGETS[opts.target]) {
     return `不支持的目标格式: ${opts.target}（可选：${converters.TARGET_NAMES.join(' / ')}）`;
   }

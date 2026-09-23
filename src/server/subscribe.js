@@ -55,9 +55,13 @@ async function handleSubscribe(req, reply, ctx) {
   const poolDropUnreachable = (config.pool || {}).drop_unreachable === true;
 
   // 目标格式与探测开关
-  const target = (q.target || subCfg.default_target || 'clash').toLowerCase();
+  // 兼容分隔写法（如 target=clash|singbox|links|v2ray、target=clash,singbox），取第一个有效值
+  let target = (q.target || subCfg.default_target || 'clash').toLowerCase();
+  if (/[|,]/.test(target)) target = target.split(/[|,]/)[0].trim();
   if (!converters.TARGETS[target]) {
-    return reply.code(400).send({ error: `不支持的目标格式: ${target}` });
+    return reply.code(400).send({
+      error: `不支持的目标格式: ${target}（可选：${Object.keys(converters.TARGETS).join(' / ')}）`,
+    });
   }
   const probe =
     q.probe !== undefined
