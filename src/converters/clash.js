@@ -9,6 +9,7 @@
  */
 
 const yaml = require('js-yaml');
+const { ensureUniqueNames } = require('./uniqueNames');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { cleanUndefined } = require('../core/util');
@@ -176,7 +177,11 @@ async function convert(nodes, opts, ctx) {
   const interval = clashCfg.url_test_interval || 300;
 
   // 节点 -> Clash proxy 对象
-  const proxies = nodes.map((n) => toClashProxy(n, opts)).filter(Boolean);
+  let proxies = nodes.map((n) => toClashProxy(n, opts)).filter(Boolean);
+  // 名称唯一化（Clash 禁止重名 proxy；默认开启，可在 converter.clash.unique_names 关闭）
+  if (clashCfg.unique_names !== false) {
+    proxies = ensureUniqueNames(proxies, { nameKey: 'name' });
+  }
   const names = proxies.map((p) => p.name);
 
   // 策略组：AUTO（自动测速）+ PROXY（手动选择，默认指向 AUTO）

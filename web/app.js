@@ -1098,6 +1098,8 @@ const CONFIG_FIELDS = [
   { group: '检测', key: 'probe.speed_test_bytes', label: '测速采样字节数', type: 'number', hint: '' },
   { group: '检测', key: 'probe.append_latency', label: '延迟追加到节点名', type: 'bool', hint: '如「节点 [120ms]」。' },
   { group: '订阅源', key: 'subscription.url_scheme', label: '订阅链接协议', type: 'select', options: ['auto', 'http', 'https'], hint: 'auto 自动信任反代头（平台强制 HTTPS 时复制即为 https）。' },
+  { group: '转换', key: 'converter.clash.unique_names', label: 'Clash 重名节点唯一化', type: 'bool', hint: '节点同名时自动追加序号（Clash 禁止重名 proxy）。' },
+  { group: '转换', key: 'converter.singbox.unique_tags', label: 'sing-box 重名节点唯一化', type: 'bool', hint: '节点同名时自动追加序号（sing-box 要求 tag 唯一）。' },
   { group: '订阅源', key: 'subscription.main_urls', label: '主订阅地址（每行一个）', type: 'list', hint: '/sub 自动合并这些地址；外部无法看到上游地址。支持多个。' },
   { group: '订阅源', key: 'subscription.extra_sources', label: '其他订阅链接（每行：名称|URL）', type: 'list', hint: '自动拉取入池补充节点库；是否输出由节点池/规则决定。' },
   { group: '订阅源', key: 'subscription.merge_main_urls', label: '主订阅结果直接并入输出', type: 'bool', hint: '关闭时主订阅仅作为节点池来源，不直接输出。' },

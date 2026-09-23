@@ -8,6 +8,7 @@
  */
 
 const { cleanUndefined } = require('../core/util');
+const { ensureUniqueNames } = require('./uniqueNames');
 
 /** 构建 transport 对象（ws/grpc/http） */
 function buildTransport(n) {
@@ -190,8 +191,13 @@ function toSingBoxOutbound(n) {
  * @param {{name?: string}} opts
  * @returns {string} JSON 文本
  */
-function convert(nodes, opts) {
-  const outbounds = nodes.map(toSingBoxOutbound).filter(Boolean);
+function convert(nodes, opts, ctx) {
+  let outbounds = nodes.map(toSingBoxOutbound).filter(Boolean);
+  // 名称唯一化（sing-box 要求 tag 唯一）；无 ctx 时默认开启
+  const sbCfg = (ctx && ctx.config && ctx.config.converter && ctx.config.converter.singbox) || {};
+  if (sbCfg.unique_tags !== false) {
+    outbounds = ensureUniqueNames(outbounds, { nameKey: 'tag', serverKey: 'server', portKey: 'server_port' });
+  }
   const doc = cleanUndefined({
     log: { level: 'info' },
     outbounds,

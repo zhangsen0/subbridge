@@ -87,6 +87,13 @@ converter:
     url_test_url: "http://www.gstatic.com/generate_204"
     # 自动测速间隔（秒）
     url_test_interval: 300
+    # 是否对重名节点做名称唯一化（Clash 禁止重名 proxy，默认开启）
+    unique_names: true
+
+  # sing-box 输出参数
+  singbox:
+    # 是否对重名节点做 tag 唯一化（sing-box 要求 tag 唯一，默认开启）
+    unique_tags: true
 
 security:
   # 管理员令牌：完全访问（/convert、/sub、/api/*）
