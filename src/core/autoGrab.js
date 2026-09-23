@@ -104,11 +104,17 @@ class AutoGrab {
     const cfg = this.ctx.config;
     const probe = !!(cfg.grab && cfg.grab.auto_probe);
     const items = this.ctx.sources.list().filter((s) => s.enabled !== false && s.auto !== false);
+    // 登记后台任务（前台「后台任务」标签页实时查看进度）
+    const task = this.ctx.taskManager
+      ? this.ctx.taskManager.start({ type: 'auto-grab', title: `自动采集来源 ${items.length} 个`, total: items.length })
+      : null;
     const started = Date.now();
     const summary = { sources: items.length, ok: 0, fail: 0, parsed: 0, added: 0, updated: 0, startedAt: new Date().toISOString(), errors: [] };
     try {
       if (items.length) {
+        let done = 0;
         for (const item of items) {
+          done += 1;
           try {
             const result = await this.ctx.grabOne(item, { probe });
             summary.parsed += result.parsed || 0;
@@ -120,6 +126,7 @@ class AutoGrab {
             summary.fail += 1;
             summary.errors.push(String(err.message || err).slice(0, 120));
           }
+          if (task) this.ctx.taskManager.progress(task.id, { done, ok: summary.ok, fail: summary.fail });
         }
       }
       summary.durationMs = Date.now() - started;
@@ -130,6 +137,10 @@ class AutoGrab {
       this.ctx.fetchLog.record({
         type: 'grab', kind: 'auto', url: `自动采集完成（源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail}）`,
         nodes: summary.parsed, error: summary.fail ? summary.errors.slice(0, 2).join('；') : '',
+      });
+      if (task) this.ctx.taskManager.finish(task.id, {
+        ok: summary.ok, fail: summary.fail,
+        summary: `源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail} / 解析节点 ${summary.parsed}`,
       });
       return summary;
     } finally {

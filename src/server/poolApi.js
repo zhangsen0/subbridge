@@ -87,9 +87,13 @@ function registerPoolApi(app, ctx) {
     const total = nodes.length;
 
     // 立即返回：测速在后台执行，避免阻塞请求（全池测速可能持续数十秒）
-    reply.send({ ok: true, started: true, total, message: '测速已后台启动，可在事件日志查看进度' });
+    reply.send({ ok: true, started: true, total, message: '测速已后台启动，可在「后台任务」标签页查看进度' });
 
     setImmediate(async () => {
+      // 登记后台任务（前台「后台任务」标签页实时查看）
+      const task = ctx.taskManager
+        ? ctx.taskManager.start({ type: 'probe', title: `池内节点测速 ${total} 个`, total })
+        : null;
       try {
         const probeCfg = (ctx.config.probe || {});
         const checked = await Promise.all(
@@ -129,8 +133,13 @@ function registerPoolApi(app, ctx) {
         await maybeApplyQuality(ctx);
         // 测速完成后按自定义删除逻辑自动清理（默认关闭，可配置）
         await maybeCleanup(ctx);
+        if (task) ctx.taskManager.finish(task.id, {
+          ok: aliveCount, fail: checked.length - aliveCount,
+          summary: `可用 ${aliveCount} 个 / 不可用 ${checked.length - aliveCount} 个`,
+        });
       } catch (err) {
         ctx.fetchLog.record({ type: 'probe', kind: 'pool', url: '池内测速失败', error: err.message });
+        if (task) ctx.taskManager.finish(task.id, { error: err.message });
       }
     });
   });

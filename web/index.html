@@ -44,6 +44,7 @@
       <div class="nav-item on" data-tab="grab"><span class="ico">📊</span>驾驶舱</div>
       <div class="nav-item admin-only hidden" data-tab="sources" data-mode="advanced"><span class="ico">📡</span>源管理</div>
       <div class="nav-item" data-tab="pool"><span class="ico">🗄️</span>节点库</div>
+      <div class="nav-item admin-only hidden" data-tab="tasks" data-mode="advanced"><span class="ico">🔧</span>后台任务</div>
       <div class="nav-item admin-only hidden" data-tab="logs" data-mode="advanced"><span class="ico">📜</span>事件日志</div>
       <div class="nav-item admin-only hidden" data-tab="localnode" data-mode="advanced"><span class="ico">🖥️</span>本地节点</div>
       <div class="nav-item admin-only hidden" data-tab="config" data-mode="advanced"><span class="ico">⚙️</span>全站参数</div>
@@ -456,6 +457,36 @@ trojan://..."></textarea>
           </div>
           <div class="pager" id="log-pager"></div>
           <p class="hint">记录抓取（含网页递归子链接）、测速、节点池变更、配置变更、系统操作；超容量自动丢弃最旧记录。分页每页 100 条。</p>
+        </div>
+      </section>
+
+      <!-- ============ 后台任务（仅管理员） ============ -->
+      <section id="panel-tasks" class="panel">
+        <div class="card collapsible" data-fold="open">
+          <div class="result-head">
+            <h3>后台任务 <span class="tag" id="tasks-tag">加载中</span><span class="fold-ico">▼</span></h3>
+            <div class="toolbar">
+              <button type="button" class="btn small" id="btn-tasks-refresh">刷新</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>类型</th>
+                  <th>状态</th>
+                  <th>进度</th>
+                  <th>结果</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody id="tasks-body">
+                <tr><td colspan="6" class="muted">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="hint">实时展示抓取 / 测速 / 自动采集等后台异步任务的进度与结果；新开标签页同样可见（数据来自服务端）。每 5 秒自动刷新。</p>
         </div>
       </section>
 

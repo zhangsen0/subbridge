@@ -82,6 +82,10 @@ function createServer(config) {
   // 抓取日志（内存环形缓冲，容量可配置）与节点池（持久化，自动补充/更新、不自动删除）
   ctx.fetchLog = new FetchLog((config.fetch_log || {}).capacity);
 
+  // 后台任务管理器：统一登记/跟踪抓取、测速、自动采集等异步任务实时进度
+  const { TaskManager } = require('../core/taskManager');
+  ctx.taskManager = new TaskManager({ maxHistory: (config.tasks || {}).max_history || 20 });
+
   // 抓取来源管理（表格化增删改查 + 自动采集元数据）
   // 保存时同步写回配置 extra_sources（updateConfig 原地更新，保持引用稳定）
   ctx.sources = new SourceStore(ctx.store, config, (patch) => updateConfig(patch));
@@ -292,6 +296,12 @@ function createServer(config) {
   app.post('/api/logs/clear', async () => {
     ctx.fetchLog.clear();
     return { ok: true };
+  });
+
+  // 后台任务（进行中异步任务 + 最近完成记录；仅管理员）
+  app.get('/api/tasks', async () => {
+    const list = ctx.taskManager ? ctx.taskManager.list() : [];
+    return { ok: true, tasks: list, running: list.filter((t) => t.status === 'running').length };
   });
 
   // 数据备份与迁移（仅管理员）

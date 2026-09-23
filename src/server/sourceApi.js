@@ -59,6 +59,10 @@ function registerSourceApi(app, ctx) {
   /** 后台异步测速本次入库节点：不阻塞抓取循环；测完写回池并按配置删除不可用 */
   function scheduleAsyncProbe(nodes) {
     if (!nodes || !nodes.length) return;
+    // 登记后台任务（前台「后台任务」标签页可查看）
+    const task = ctx.taskManager
+      ? ctx.taskManager.start({ type: 'probe', title: `抓取后节点测速 ${nodes.length} 个`, total: nodes.length })
+      : null;
     setImmediate(async () => {
       try {
         const probeCfg = (ctx.config && ctx.config.probe) || {};
@@ -78,21 +82,31 @@ function registerSourceApi(app, ctx) {
         }
         await ctx.nodePool.updateProbe(probeMap);
         // 自动删除不可用（grab.auto_remove_unreachable，默认关；开启=只留可用节点）
+        let removedCount = 0;
         if ((ctx.config.grab || {}).auto_remove_unreachable) {
           const deadKeys = checked
             .filter((n) => n.probe && !n.probe.alive)
             .map((n) => `${n.type}:${n.server}:${n.port}`);
-          if (deadKeys.length) await ctx.nodePool.remove(deadKeys);
+          if (deadKeys.length) {
+            removedCount = deadKeys.length;
+            await ctx.nodePool.remove(deadKeys);
+          }
         }
+        const aliveCount = checked.filter((n) => n.probe && n.probe.alive).length;
         ctx.fetchLog.record({
           type: 'probe', kind: 'grab',
           url: `抓取后异步测速 ${checked.length} 个节点`,
           nodes: checked.length,
-          alive: checked.filter((n) => n.probe && n.probe.alive).length,
+          alive: aliveCount,
           error: '',
+        });
+        if (task) ctx.taskManager.finish(task.id, {
+          ok: aliveCount, fail: checked.length - aliveCount,
+          summary: `可用 ${aliveCount} 个 / 不可用 ${checked.length - aliveCount} 个${removedCount ? `，删除 ${removedCount} 个` : ''}`,
         });
       } catch (err) {
         ctx.fetchLog.record({ type: 'probe', kind: 'grab', url: '抓取后异步测速失败', error: err.message });
+        if (task) ctx.taskManager.finish(task.id, { error: err.message });
       }
     });
   }
@@ -189,14 +203,22 @@ function registerSourceApi(app, ctx) {
 
     const probe = body.probe === true;
     grabRunning = true;
+    // 登记后台任务（前台「后台任务」标签页实时查看进度）
+    const task = ctx.taskManager
+      ? ctx.taskManager.start({ type: 'grab', title: `批量抓取来源 ${items.length} 个`, total: items.length })
+      : null;
     grabTask = (async () => {
       const results = [];
       // 顺序抓取，避免并发压垮节点池代理与源站（可配置并发后扩展）
+      let done = 0;
       for (const item of items) {
+        done += 1;
         try {
           results.push(await grabOne(item, { probe }));
+          if (task) ctx.taskManager.progress(task.id, { done, ok: results.filter((r) => r.ok).length, fail: results.filter((r) => !r.ok).length });
         } catch (err) {
           results.push({ id: item.id, url: item.url, ok: false, error: err.message });
+          if (task) ctx.taskManager.progress(task.id, { done, ok: results.filter((r) => r.ok).length, fail: results.filter((r) => !r.ok).length });
         }
       }
       const okCount = results.filter((r) => r.ok).length;
@@ -204,9 +226,10 @@ function registerSourceApi(app, ctx) {
         type: 'grab', kind: 'sources', url: `批量抓取来源 ${results.length} 个（成功 ${okCount}）`,
         nodes: results.reduce((a, r) => a + (r.parsed || 0), 0), error: '',
       });
+      if (task) ctx.taskManager.finish(task.id, { ok: okCount, fail: results.length - okCount, summary: `成功 ${okCount} 个 / 失败 ${results.length - okCount} 个，解析节点 ${results.reduce((a, r) => a + (r.parsed || 0), 0)}` });
       grabRunning = false;
     })();
-    return { ok: true, async: true, total: items.length, message: '抓取已后台启动，进度可在源管理/事件日志查看' };
+    return { ok: true, async: true, total: items.length, message: '抓取已后台启动，可在「后台任务」标签页查看实时进度' };
   });
 
   // 自动采集状态

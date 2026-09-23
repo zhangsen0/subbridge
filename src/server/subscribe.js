@@ -113,6 +113,8 @@ async function handleSubscribe(req, reply, ctx) {
     },
     config,
   );
+  // 订阅输出只保留可用节点（subscription.only_alive 默认开）：未测/不可达节点不输出
+  opts.onlyAlive = subCfg.only_alive !== false;
 
   let result;
   if (!includePool || !ctx.nodePool) {

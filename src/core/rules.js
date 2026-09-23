@@ -53,8 +53,9 @@ function sortByKey(nodes, key, desc) {
     if (key === 'name') return dir * collator.compare(a.name || '', b.name || '');
     const va = probeOf(a) && probeOf(a)[key === 'speed' ? 'speedBps' : 'latencyMs'];
     const vb = probeOf(b) && probeOf(b)[key === 'speed' ? 'speedBps' : 'latencyMs'];
-    const na = va == null ? Number.POSITIVE_INFINITY : va;
-    const nb = vb == null ? Number.POSITIVE_INFINITY : vb;
+    // 未测节点（无数据）无论升/降序都排最后，避免订阅输出把未知质量的节点排在前
+    const na = va == null ? (desc ? -Infinity : Infinity) : va;
+    const nb = vb == null ? (desc ? -Infinity : Infinity) : vb;
     return dir * (na - nb);
   });
 }

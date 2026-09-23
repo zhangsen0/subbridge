@@ -221,6 +221,8 @@ subscription:
   async_refresh: true
   # 是否并入节点池累积节点（每次抓取自动补充/更新、不自动删除）
   include_pool: true
+  # 订阅输出只保留可用节点（未测/不可达不输出，保证客户端拉取的节点真实可用）
+  only_alive: true
   # /sub 默认目标格式
   default_target: "clash"
   # /sub 默认是否启用可用性检测（可通过 probe=1/0 覆盖）
