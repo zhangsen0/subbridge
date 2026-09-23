@@ -12,7 +12,7 @@
  */
 
 const net = require('node:net');
-const { speedTestViaTunnel, probeViaProxy } = require('./tunnel');
+const { speedTestViaTunnel, probeViaProxy, speedViaHttpProxy } = require('./tunnel');
 
 /**
  * TCP 连通性检测
@@ -68,17 +68,48 @@ async function checkNode(node, opts) {
   if (probe.latencyMs === null) return node;
   probe.alive = true;
 
-  // 真实下载测速：仅 http/socks5 节点可经代理隧道完成
-  if (opts.speedTest && (node.type === 'http' || node.type === 'socks5') && opts.speedTestUrl) {
+  // 真实下载测速（opts.speedTest 开启时）：
+  // 所有支持协议统一经协议桥（http/socks5 直返、vless/trojan/ss/vmess 等建本地桥）
+  // 请求测速地址并下载采样字节 —— 请求 2xx 且完成下载才算可用（TCP 通不代表协议可用）。
+  if (opts.speedTest && opts.speedTestUrl) {
     try {
-      probe.speedBps = await speedTestViaTunnel(
-        node,
-        opts.speedTestUrl,
-        opts.speedTestBytes || 200000,
-        opts.timeoutMs || 5000,
-      );
+      // 兼容旧路径：http/socks5 直连隧道测速（无桥开销）
+      if (node.type === 'http' || node.type === 'socks5') {
+        probe.speedBps = await speedTestViaTunnel(
+          node,
+          opts.speedTestUrl,
+          opts.speedTestBytes || 200000,
+          opts.timeoutMs || 5000,
+        );
+        if (probe.speedBps == null) probe.alive = false;
+      } else {
+        // 桥接协议：经协议桥转 http 上游后真实请求测速
+        const { startBridge, isSupportedProxyType } = require('../core/proxyBridge');
+        if (!isSupportedProxyType(node.type)) {
+          probe.alive = false;
+        } else {
+          const bridge = await startBridge(node, { ttlMs: opts.bridgeTtlMs || 60000 });
+          if (bridge && bridge.url) {
+            const speed = await speedViaHttpProxy(
+              bridge.url,
+              opts.speedTestUrl,
+              opts.speedTestBytes || 200000,
+              opts.timeoutMs || 5000,
+            );
+            if (speed != null) {
+              probe.alive = true;
+              probe.speedBps = speed;
+            } else {
+              // 真实代理请求失败 → 判定不可用（即使 TCP 通）
+              probe.alive = false;
+            }
+          } else {
+            probe.alive = false;
+          }
+        }
+      }
     } catch {
-      probe.speedBps = null;
+      probe.alive = false;
     }
   }
   return node;

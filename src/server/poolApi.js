@@ -105,6 +105,7 @@ function registerPoolApi(app, ctx) {
               speedTestBytes: probeCfg.speed_test_bytes,
               // 上游探测代理：探测配置优先，回退抓取配置
               proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
+              bridgeTtlMs: Number(probeCfg.bridge_ttl_ms || 60000),
             }),
           ),
         );
@@ -234,6 +235,7 @@ function registerPoolApi(app, ctx) {
           speedTestUrl: probeCfg.speed_test_url,
           speedTestBytes: probeCfg.speed_test_bytes,
           proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
+          bridgeTtlMs: Number(probeCfg.bridge_ttl_ms || 60000),
         }),
       ),
     );

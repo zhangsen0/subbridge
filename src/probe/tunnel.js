@@ -261,4 +261,38 @@ async function probeViaProxy(proxyUrl, host, port, timeoutMs) {
   }
 }
 
-module.exports = { openProxyTunnel, speedTestViaTunnel, probeViaProxy };
+/**
+ * 经 HTTP 上游代理（协议桥输出或 http/socks 节点直用）真实下载测速：
+ * 请求 speedTestUrl 并下载指定字节量，统计速度（字节/秒）；请求非 2xx/超时返回 null。
+ * 用于对任意协议节点做"真实代理连通验证 + 网速测量"（TCP 通不代表协议可用）。
+ * @param {string} proxyUrl HTTP 上游代理地址（如 http://127.0.0.1:42379 或 http://user:pass@server:port）
+ * @param {string} url 测速地址
+ * @param {number} bytes 采样字节数
+ * @param {number} timeoutMs 超时（毫秒）
+ * @returns {Promise<number|null>} 速度（字节/秒）；失败返回 null
+ */
+async function speedViaHttpProxy(proxyUrl, url, bytes, timeoutMs) {
+  if (!proxyUrl || !url) return null;
+  const undici = require('undici');
+  const agent = new undici.ProxyAgent(proxyUrl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 5000);
+  try {
+    const resp = await undici.fetch(url, { agent, signal: controller.signal });
+    if (!resp || !resp.ok || !resp.body) return null;
+    const start = Date.now();
+    let count = 0;
+    for await (const chunk of resp.body) {
+      count += chunk.length;
+      if (count >= (bytes || 200000)) break;
+    }
+    const elapsed = (Date.now() - start) / 1000;
+    return elapsed > 0 ? Math.round(count / elapsed) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { openProxyTunnel, speedTestViaTunnel, probeViaProxy, speedViaHttpProxy };
