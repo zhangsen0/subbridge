@@ -147,9 +147,9 @@ async function fetchAll(urls, fetcher, config, ctx = {}) {
 
 /**
  * 可用性检测：TCP 连通性（全部节点）+ 真实测速（http/socks5 节点）
- * 按配置剔除不可达节点、追加延迟后缀。
+ * 按配置剔除不可达节点、追加延迟后缀；测速结果写回节点池（订阅过滤基于池缓存）。
  */
-async function applyProbe(nodes, config, warnings) {
+async function applyProbe(nodes, config, warnings, ctx) {
   const probeCfg = (config.probe || {});
   if (!nodes.length) return nodes;
 
@@ -162,6 +162,15 @@ async function applyProbe(nodes, config, warnings) {
     // 上游探测代理：探测配置优先，回退抓取配置（沙箱/受限网络经代理探测）
     proxyUrl: probeCfg.upstream_proxy || (config.fetcher && config.fetcher.upstream_proxy) || '',
   });
+
+  // 测速结果写回节点池：本次入库节点获得 probe 数据，订阅拉取/质量门槛可直接使用
+  if (ctx && ctx.nodePool && checked.length) {
+    const probeMap = {};
+    for (const n of checked) {
+      if (n.probe) probeMap[`${n.type}:${n.server}:${n.port}`] = n.probe;
+    }
+    try { await ctx.nodePool.updateProbe(probeMap); } catch (e) { warnings.push(`测速结果写回失败: ${e.message}`); }
+  }
 
   let alive = checked.filter((n) => !n.probe || n.probe.alive);
   const deadCount = checked.length - alive.length;
@@ -292,7 +301,7 @@ async function buildConverted(urls, opts, ctx, { extraNodes = [] } = {}) {
 
   // 4. 可用性检测（可选）
   if (opts.probe) {
-    processed = await applyProbe(processed, config, warnings);
+    processed = await applyProbe(processed, config, warnings, ctx);
     // 按测速延迟排序（需在检测之后；无数据节点排在最后）
     if (opts.sort === 'latency' || opts.sort === 'latency_desc') {
       const sorted = processed.slice().sort((a, b) => {

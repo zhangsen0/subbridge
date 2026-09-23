@@ -45,12 +45,56 @@ function registerSourceApi(app, ctx) {
     const grabCfg = (ctx.config && ctx.config.grab) || {};
     // 抓取后自动测速：手动 probe 或配置 grab.auto_probe 开启（手动/自动/定时采集共用）
     const autoProbe = probe === true || grabCfg.auto_probe === true;
-    const opts = buildOptions({ probe: autoProbe ? '1' : '0' }, ctx.config);
+    // 抓取阶段不同步测速（提速）：测速统一走后台异步（不阻塞抓取循环与 API 响应）
+    const opts = buildOptions({ probe: '0' }, ctx.config);
     const result = await buildConverted(urls, opts, ctx);
-    // 测速完成后，按配置自动删除不可用节点
+    // 抓取后自动测速（后台异步）：测速写回节点池，按配置自动删除不可用节点
+    if (autoProbe) scheduleAsyncProbe(result.nodes);
+    // 按配置清理本次已测不可用节点（原逻辑保留）
     const removed = await removeUnreachableAfterGrab(result.nodes);
     if (removed) result.removedUnreachable = removed;
     return result;
+  }
+
+  /** 后台异步测速本次入库节点：不阻塞抓取循环；测完写回池并按配置删除不可用 */
+  function scheduleAsyncProbe(nodes) {
+    if (!nodes || !nodes.length) return;
+    setImmediate(async () => {
+      try {
+        const probeCfg = (ctx.config && ctx.config.probe) || {};
+        const { runChecks } = require('../probe/checker');
+        const checked = await runChecks(nodes, {
+          concurrency: probeCfg.concurrency || 10,
+          timeoutMs: probeCfg.timeout_ms || 3000,
+          speedTest: !!probeCfg.speed_test,
+          speedTestUrl: probeCfg.speed_test_url,
+          speedTestBytes: probeCfg.speed_test_bytes,
+          proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
+        });
+        // 测速结果写回节点池
+        const probeMap = {};
+        for (const n of checked) {
+          if (n.probe) probeMap[`${n.type}:${n.server}:${n.port}`] = n.probe;
+        }
+        await ctx.nodePool.updateProbe(probeMap);
+        // 自动删除不可用（grab.auto_remove_unreachable，默认关；开启=只留可用节点）
+        if ((ctx.config.grab || {}).auto_remove_unreachable) {
+          const deadKeys = checked
+            .filter((n) => n.probe && !n.probe.alive)
+            .map((n) => `${n.type}:${n.server}:${n.port}`);
+          if (deadKeys.length) await ctx.nodePool.remove(deadKeys);
+        }
+        ctx.fetchLog.record({
+          type: 'probe', kind: 'grab',
+          url: `抓取后异步测速 ${checked.length} 个节点`,
+          nodes: checked.length,
+          alive: checked.filter((n) => n.probe && n.probe.alive).length,
+          error: '',
+        });
+      } catch (err) {
+        ctx.fetchLog.record({ type: 'probe', kind: 'grab', url: '抓取后异步测速失败', error: err.message });
+      }
+    });
   }
 
   /** 抓取单个源并回写状态 */

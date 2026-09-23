@@ -76,7 +76,7 @@ function registerPoolApi(app, ctx) {
     return { node };
   });
 
-  // 池内节点测速并写回
+  // 池内节点测速并写回（异步：立即返回，后台并发测速，测完写回池/质量门槛/清理/日志）
   app.post('/api/pool/probe', async (req, reply) => {
     const body = req.body || {};
     const keys = Array.isArray(body.keys) ? body.keys : [];
@@ -84,62 +84,55 @@ function registerPoolApi(app, ctx) {
     if (keys.length) nodes = nodes.filter((n) => keys.includes(`${n.type}:${n.server}:${n.port}`));
     const limit = Number(body.limit) > 0 ? Number(body.limit) : nodes.length;
     nodes = nodes.slice(0, limit);
+    const total = nodes.length;
 
-    const probeCfg = (ctx.config.probe || {});
-    const checked = await Promise.all(
-      nodes.map((n) =>
-        checkNode({ ...n }, {
-          timeoutMs: probeCfg.timeout_ms || 3000,
-          speedTest: !!probeCfg.speed_test,
-          speedTestUrl: probeCfg.speed_test_url,
-          speedTestBytes: probeCfg.speed_test_bytes,
-          // 上游探测代理：探测配置优先，回退抓取配置
-          proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
-        }),
-      ),
-    );
+    // 立即返回：测速在后台执行，避免阻塞请求（全池测速可能持续数十秒）
+    reply.send({ ok: true, started: true, total, message: '测速已后台启动，可在事件日志查看进度' });
 
-    // 写回检测结果
-    const probeMap = {};
-    for (const n of checked) {
-      if (n.probe) probeMap[`${n.type}:${n.server}:${n.port}`] = n.probe;
-    }
-    await ctx.nodePool.updateProbe(probeMap);
+    setImmediate(async () => {
+      try {
+        const probeCfg = (ctx.config.probe || {});
+        const checked = await Promise.all(
+          nodes.map((n) =>
+            checkNode({ ...n }, {
+              timeoutMs: probeCfg.timeout_ms || 3000,
+              speedTest: !!probeCfg.speed_test,
+              speedTestUrl: probeCfg.speed_test_url,
+              speedTestBytes: probeCfg.speed_test_bytes,
+              // 上游探测代理：探测配置优先，回退抓取配置
+              proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',
+            }),
+          ),
+        );
 
-    const aliveCount = checked.filter((n) => n.probe && n.probe.alive).length;
-    // 测速事件记入日志
-    ctx.fetchLog.record({
-      type: 'probe',
-      kind: 'pool',
-      url: keys.length ? `池内节点 ${keys.length} 个` : '池内全部节点',
-      nodes: checked.length,
-      alive: aliveCount,
-      durationMs: 0,
-      error: '',
+        // 写回检测结果
+        const probeMap = {};
+        for (const n of checked) {
+          if (n.probe) probeMap[`${n.type}:${n.server}:${n.port}`] = n.probe;
+        }
+        await ctx.nodePool.updateProbe(probeMap);
+
+        const aliveCount = checked.filter((n) => n.probe && n.probe.alive).length;
+        // 测速事件记入日志
+        ctx.fetchLog.record({
+          type: 'probe',
+          kind: 'pool',
+          url: keys.length ? `池内节点 ${keys.length} 个` : '池内全部节点',
+          nodes: checked.length,
+          alive: aliveCount,
+          durationMs: 0,
+          error: '',
+        });
+
+        // 测速完成后按质量门槛自动开关节点（默认关闭，可配置）
+        const { maybeApplyQuality, maybeCleanup } = require('./qualityApi');
+        await maybeApplyQuality(ctx);
+        // 测速完成后按自定义删除逻辑自动清理（默认关闭，可配置）
+        await maybeCleanup(ctx);
+      } catch (err) {
+        ctx.fetchLog.record({ type: 'probe', kind: 'pool', url: '池内测速失败', error: err.message });
+      }
     });
-
-    // 测速完成后按质量门槛自动开关节点（默认关闭，可配置）
-    let quality = null;
-    const { maybeApplyQuality, maybeCleanup } = require('./qualityApi');
-    quality = await maybeApplyQuality(ctx);
-    // 测速完成后按自定义删除逻辑自动清理（默认关闭，可配置）
-    let cleanup = null;
-    cleanup = await maybeCleanup(ctx);
-
-    return {
-      tested: checked.length,
-      results: checked.map((n) => ({
-        key: `${n.type}:${n.server}:${n.port}`,
-        name: n.name,
-        alive: !!(n.probe && n.probe.alive),
-        latencyMs: n.probe ? n.probe.latencyMs : null,
-        speedBps: n.probe ? n.probe.speedBps : null,
-        score: n.probe ? require('../core/quality').qualityScore(n) : null,
-        error: n.probe && n.probe.error ? n.probe.error : '',
-      })),
-      quality,
-      cleanup,
-    };
   });
 
   // 手动应用质量门槛（忽略 quality_enabled 开关强制应用）

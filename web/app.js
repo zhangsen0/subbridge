@@ -778,7 +778,12 @@ async function loadAutoPilot() {
     $('ap-nextrun').textContent = d.next_run_at ? new Date(d.next_run_at).toLocaleString() : '-';
     $('btn-ap-stop').classList.toggle('hidden', !d.enabled);
   } catch (err) {
-    /* 无人值守卡展示失败不阻断 */
+    /* 无人值守卡加载失败：未登录/接口异常时明确提示，避免误读为"未开启" */
+    const tag = $('ap-tag');
+    if (tag) { tag.textContent = '登录后查看'; tag.className = 'tag'; }
+    const cells = document.querySelectorAll('.ap-step .ap-state');
+    cells.forEach((c) => { c.textContent = '未登录'; c.className = 'ap-state'; });
+    const nxt = $('ap-next'); if (nxt) nxt.textContent = '登录后查看';
   }
 }
 function setApStep(id, applied) {
@@ -1886,6 +1891,8 @@ async function init() {
   loadTemplateList();
 }
 document.addEventListener('DOMContentLoaded', () => {
+  // 未登录强制到登录页：系统入口即登录页，访客不预览任何业务数据
+  if (!getToken()) { location.replace('/login'); return; }
   // 逐个初始化并隔离异常：单个模块出错不阻断其余功能（含登录态识别）
   const steps = [
     ['主题', initTheme], ['折叠', initCollapse], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab], ['无人值守', initAutoPilot],
