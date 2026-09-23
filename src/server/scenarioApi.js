@@ -29,6 +29,56 @@ function loadScenarios() {
   }
 }
 
+/** 把规则/门槛/清理/参数补丁转成人类可读的中文说明（供向导卡片展示"内部做了什么配置"） */
+const RULE_TEXT = {
+  alive: () => '存活可用',
+  unreachable: () => '清理不可达节点',
+  latency: (r) => (r.max_ms ? `延迟≤${r.max_ms}ms` : '延迟达标'),
+  speed: (r) => (r.min_bps ? `速度≥${Math.round(r.min_bps / 1e6)}Mbps` : '速度达标'),
+  score: (r) => (r.min_score ? `质量分≥${r.min_score}` : '质量分达标'),
+  sort: (r) => {
+    const key = r.key === 'speed' ? '速度' : r.key === 'latency' ? '延迟' : r.key || '综合';
+    return r.order === 'desc' ? `按${key}降序` : `按${key}升序`;
+  },
+  limit: (r) => (r.count ? `限${r.count}个` : '限制数量'),
+  country: (r) => (Array.isArray(r.value) ? `地区：${r.value.join(' / ')}` : '指定地区'),
+  stale: (r) => (r.days ? `清理${r.days}天未更新` : '清理过期节点'),
+  slow: (r) => (r.max_ms ? `清理延迟>${r.max_ms}ms` : '清理慢节点'),
+  no_probe: (r) => (r.days ? `清理${r.days}天未测速` : '清理未测速节点'),
+};
+
+function humanizeRules(rules) {
+  return (Array.isArray(rules) ? rules : []).map((r) => (RULE_TEXT[r.type] ? RULE_TEXT[r.type](r) : r.type)).filter(Boolean);
+}
+
+/** 参数补丁摘要：converter/clash/probe 等常见键转中文 */
+function humanizePatch(patch) {
+  const out = [];
+  if (!patch || typeof patch !== 'object') return out;
+  if (patch.udp !== undefined) out.push(patch.udp ? 'UDP 转发开' : 'UDP 转发关');
+  const clash = patch.clash || {};
+  if (clash.url_test_interval !== undefined) out.push(`Clash 测速间隔 ${clash.url_test_interval}s`);
+  if (clash.url_test_url) out.push('Clash 自定义测速地址');
+  const probe = patch.probe || {};
+  if (probe.timeout_ms !== undefined) out.push(`测速超时 ${probe.timeout_ms}ms`);
+  if (patch.sort !== undefined) out.push(patch.sort ? `排序 ${patch.sort}` : '默认排序');
+  return out;
+}
+
+/** 生成场景"内部配置"摘要（一组短句） */
+function scenarioSummary(s) {
+  const items = [];
+  const rules = humanizeRules(s && s.rules);
+  if (rules.length) items.push(`选取：${rules.join('、')}`);
+  const gates = humanizeRules(s && s.quality_gates);
+  if (gates.length) items.push(`质量：${gates.join('、')}`);
+  const cleans = humanizeRules(s && s.cleanup_rules);
+  if (cleans.length) items.push(`清理：${cleans.join('、')}`);
+  const patches = humanizePatch(s && s.config_patch);
+  if (patches.length) items.push(`参数：${patches.join('、')}`);
+  return items;
+}
+
 /** 规范化订阅链接文本：按换行/逗号分隔，去空 */
 function parseUrls(text) {
   return String(text || '')
@@ -55,6 +105,7 @@ function registerScenarioApi(app, ctx) {
       rules: (s && Array.isArray(s.rules) ? s.rules : []),
       quality_gates: (s && Array.isArray(s.quality_gates) ? s.quality_gates : []),
       cleanup_rules: (s && Array.isArray(s.cleanup_rules) ? s.cleanup_rules : []),
+      summary: scenarioSummary(s),
     }));
     return { ok: true, scenarios: list };
   });

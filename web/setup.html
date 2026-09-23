@@ -145,7 +145,10 @@
               '<div class="sc-em">' + esc(s.emoji) + '</div>' +
               '<div class="sc-name">' + esc(s.label) + '</div>' +
               '<div class="sc-aud">' + esc(s.audience) + '</div>' +
-              '<div class="sc-desc">' + esc(s.desc) + '</div></div>';
+              '<div class="sc-desc">' + esc(s.desc) + '</div>' +
+              '<ul class="sc-summary">' + (s.summary || []).map(function (line) {
+                return '<li>' + esc(line) + '</li>';
+              }).join('') + '</ul></div>';
           }).join('') + '</div>';
         }
         $('wz-body').innerHTML = html;
