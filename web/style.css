@@ -395,12 +395,18 @@ body[data-mode='advanced'] [data-mode='expert']:not(.seg button) { display: none
 .pager .btn.mini.on { background: var(--accent, #4f6ef7); color: #fff; border-color: var(--accent, #4f6ef7); }
 .pager .btn.mini:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ---------- 弹出层（添加来源） ---------- */
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+/* ---------- 弹出层（添加来源，与全站卡片风格统一） ---------- */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(2px); z-index: 999; display: flex; align-items: center; justify-content: center; padding: 20px; animation: modal-fade .18s ease; }
 .modal-mask.hidden { display: none; }
-.modal { background: var(--panel, #17171c); border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 14px; width: 100%; max-width: 620px; padding: 18px 20px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
-.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.modal-head h3 { margin: 0; font-size: 16px; }
-.modal-close { background: none; border: none; color: var(--text-faint, #888); font-size: 22px; cursor: pointer; line-height: 1; }
-.modal textarea, .modal input[type="text"] { width: 100%; padding: 8px 10px; border: 1px solid var(--line, rgba(128,128,128,.25)); border-radius: 8px; background: var(--panel-2, #16161a); color: var(--text, #eee); font-size: 13px; margin-bottom: 10px; }
+@keyframes modal-fade { from { opacity: 0; } to { opacity: 1; } }
+.modal { background: var(--panel, #17171c); border: 1px solid var(--line, rgba(128,128,128,.28)); border-radius: 16px; width: 100%; max-width: 640px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.55); animation: modal-pop .18s ease; }
+@keyframes modal-pop { from { transform: translateY(8px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line, rgba(128,128,128,.14)); }
+.modal-head h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.modal-head h3 .tag { font-size: 11px; }
+.modal-close { background: none; border: none; color: var(--text-faint, #888); font-size: 20px; cursor: pointer; line-height: 1; width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.modal-close:hover { background: rgba(128,128,128,.12); color: var(--text, #eee); }
+.modal textarea, .modal input[type="text"] { width: 100%; padding: 9px 12px; border: 1px solid var(--line, rgba(128,128,128,.28)); border-radius: 10px; background: var(--panel-2, #16161a); color: var(--text, #eee); font-size: 13px; margin-bottom: 12px; outline: none; }
+.modal textarea:focus, .modal input[type="text"]:focus { border-color: var(--accent, #4f6ef7); }
+.modal .modal-count { font-size: 12px; color: var(--text-faint, #888); margin: -6px 0 12px; }
 .modal .actions { display: flex; gap: 8px; justify-content: flex-end; }

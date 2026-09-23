@@ -517,13 +517,14 @@ trojan://..."></textarea>
       <div class="modal-mask hidden" id="src-modal-mask">
         <div class="modal">
           <div class="modal-head">
-            <h3>添加抓取来源</h3>
+            <h3>添加抓取来源 <span class="tag ok">批量</span></h3>
             <button type="button" class="modal-close" id="btn-src-modal-close">×</button>
           </div>
           <p class="hint">每行一个来源：订阅链接 / 网页地址 / 节点文本均可，自动识别；支持 {Y_m_d} 等日期变量与 |links / |ss 后缀；# 开头的行视为注释忽略。</p>
           <textarea id="src-modal-urls" rows="8" spellcheck="false"
             placeholder="https://example.com/sub?token=xxx&#10;https://www.vpngate.net/cn/&#10;https://raw.githubusercontent.com/xxx/yyy/main/clash.yaml|links&#10;# 这是注释，不会添加"></textarea>
           <input id="src-modal-note" placeholder="备注（可选，对本批全部来源生效）">
+          <p class="modal-count" id="src-modal-count"></p>
           <div class="actions">
             <button type="button" class="btn primary" id="btn-src-modal-add">批量添加</button>
             <button type="button" class="btn ghost" id="btn-src-modal-cancel">取消</button>

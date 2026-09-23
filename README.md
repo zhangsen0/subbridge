@@ -53,6 +53,14 @@
 
 ## 快速开始
 
+### 一分钟部署（任意 Linux/macOS）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zhangsen0/subbridge/main/install.sh | bash
+```
+
+脚本自动完成：Node 检测/安装 → 依赖 → 安全令牌 → 启动服务（systemd）→ 输出后台地址与登录信息。
+
 ### 本地运行
 
 ```bash
@@ -120,30 +128,61 @@ npm start          # 默认 0.0.0.0:8080
 
 ## 部署
 
-### 方式一：Docker 自托管（推荐生产使用）
+### 方式一：一键脚本（推荐 · 1 分钟）
+
+任何 Linux / macOS 主机（含 VPS、云主机、WSL），只需一条命令；脚本会自动检测架构下载 Node、安装依赖、生成安全令牌并启动服务（支持 systemd 守护）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zhangsen0/subbridge/main/install.sh | bash
+```
+
+也可先下载后自定义参数（参数全可配置）：
+
+```bash
+bash install.sh --port 8080 --token 你的令牌 --admin admin --password 你的密码
+# --docker 用 Docker 运行；--no-service 跳过 systemd；--dir /opt/subbridge 指定目录
+```
+
+脚本行为：自动检测 x64/arm64 架构 → 缺 Node 时下载 Node18 LTS 到本地 runtime（不污染系统）→ `npm install`（Node<18 自动固定 undici@5.28.4）→ 生成 `.env` → 安装并启动 systemd 服务（或 nohup 后台）→ 输出后台地址 / 登录账号 / 访问令牌 / 订阅链接。
+
+### 方式二：Docker 自托管（生产推荐）
 
 需要：Docker 19+（或 Docker Compose）。
 
 ```bash
-# 1. 克隆仓库
-git clone https://github.com/zhangsen0/subbridge.git
-cd subbridge
+# 一键运行（不拉代码）
+docker run -d --name subbridge --restart unless-stopped -p 8080:8080 \
+  -e SUBBRIDGE_API_TOKEN=你的令牌 \
+  -e SUBBRIDGE_ADMIN_USERNAME=admin -e SUBBRIDGE_ADMIN_PASSWORD=你的密码 \
+  -v subbridge-data:/data zhangsen0/subbridge:latest
 
-# 2. 构建并启动（默认 0.0.0.0:8080）
-docker compose up -d
-
-# 3. 查看日志
-docker compose logs -f
+# 或克隆仓库用 Compose
+git clone https://github.com/zhangsen0/subbridge.git && cd subbridge
+docker compose up -d          # 启动
+docker compose logs -f        # 日志
 ```
 
-Docker Compose 会：
-- 构建 `node:22-alpine` 镜像并安装生产依赖
-- 挂载 `./data` 目录持久化配置、节点池、模板（重启不丢失）
-- 默认暴露 `8080` 端口（可在 `docker-compose.yml` 或环境变量 `PORT` 修改）
+Docker Compose 会：构建 Node 镜像安装生产依赖、挂载 `./data` 持久化（重启不丢）、暴露 `8080`（可在 compose 或 `PORT` 环境变量改）。更新：`git pull && docker compose up -d --build`。
 
-停止：`docker compose down`；更新：`git pull && docker compose up -d --build`。
+### 方式三：VPS / 云主机（含 systemd 与 CF 隧道）
 
-### 方式二：Render（免费 PaaS，零成本体验）
+任意 Linux 主机（1C1G 即可）——上面「一键脚本」已自动完成以下步骤；手动方式：
+
+```bash
+git clone https://github.com/zhangsen0/subbridge.git && cd subbridge
+npm install --omit=dev
+# 生产建议 pm2 守护
+npm i -g pm2
+PORT=8080 SUBBRIDGE_API_TOKEN=你的令牌 pm2 start app.js --name subbridge
+pm2 save && pm2 startup
+```
+
+**对外暴露三件事**：
+1. **Web / API**：Nginx/Caddy 反代 + HTTPS，或 **Cloudflare 隧道**（服务器跑 `cloudflared service install <令牌>`，CF 面板把域名映射到 `localhost:8080`，Service 类型必须选 **HTTP**）。
+2. **本机代理节点**：登录后台「本地节点」配置模式（standalone 独立端口 / shared 与 Web 共用端口）、SOCKS5 端口、公网地址；代理节点需真实公网 IP（CF 隧道不转发代理 CONNECT）。
+3. **订阅链接**：`http(s)://域名/sub?token=你的令牌`（格式转换加 `&target=clash|singbox|links|v2ray`）。
+
+### 方式四：Render / 其他 PaaS（免费体验）
 
 需要：GitHub 账号 + 手机号验证。**免费档限制**：750 小时/月、15 分钟无流量休眠（冷启动 30-60s）、实例重启后磁盘数据清空（见下方「数据持久化」）。
 
@@ -176,24 +215,25 @@ Docker Compose 会：
 
 **自定义域名**：Settings → Custom Domains → 添加域名 → 到域名商 DNS 加 CNAME（`sub` → `<服务名>.onrender.com`）→ 自动签发 HTTPS。建议套 Cloudflare CDN 加速与隐藏真实 IP。
 
-### 方式三：Zeabur
+### 方式五：虚拟主机（共享空间 / 面板）
+
+**支持条件**：空间允许运行 Node.js 常驻进程（cPanel 的 NodeJS 应用、宝塔「Node 项目」、支持 SSH 的虚拟主机等）。纯 PHP/静态虚拟主机**不支持**（无法运行 Node 服务）。
+
+适配要点（本项目已内置支持，无需改代码）：
+1. **入口**：`app.js`，启动命令 `node app.js`（面板里填这个即可）
+2. **单端口**：虚拟主机一般只开放一个 Web 端口（80/443 或面板分配）——登录后台「本地节点 → 监听模式」选 **shared（端口复用）**，Web 页面、API、HTTP 代理节点共用同一端口
+3. **环境变量**：在面板「环境变量」配置 `SUBBRIDGE_API_TOKEN`、`SUBBRIDGE_ADMIN_USERNAME`、`SUBBRIDGE_ADMIN_PASSWORD`、`PORT`（多数面板自动注入）
+4. **持久化**：数据默认写 `./data`（相对目录），面板里把该目录设为持久化/备份即可；节点池与配置不丢
+5. **定时抓取**：无需 cron，进程内自动采集（全站参数 → 抓取 → 自动采集间隔）
+6. **出站网络**：需允许访问外部订阅源；受限环境可在「全站参数 → 抓取」配置上游代理
+
+> 若虚拟主机**不允许常驻进程**（仅按请求拉起），则不适合部署本服务，建议改用上方的 VPS 或 Docker 方式。
+
+### 方式六：Zeabur
 
 Zeabur 免费档为「管理自有服务器」模式，免费托管已下线；若你有自购服务器可通过 Zeabur 控制台统一管理并部署（构建命令/环境变量同上）。详见 [zeabur.com/pricing](https://zeabur.com/pricing)。
 
-### 方式四：VPS / 云主机
 
-任意 Linux 主机（1C1G 即可）：
-
-```bash
-git clone https://github.com/zhangsen0/subbridge.git && cd subbridge
-npm install --omit=dev
-# 生产建议用 pm2 守护
-npm i -g pm2
-PORT=8080 SUBBRIDGE_API_TOKEN=你的令牌 pm2 start app.js --name subbridge
-pm2 save && pm2 startup
-```
-
-配合 Nginx 反代 + HTTPS 证书（Caddy / certbot）可获得稳定公网访问。
 
 ## 开发
 

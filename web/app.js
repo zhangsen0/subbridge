@@ -531,6 +531,7 @@ function initSources() {
   $('btn-src-modal-cancel').addEventListener('click', closeSourceModal);
   $('src-modal-mask').addEventListener('click', (e) => { if (e.target.id === 'src-modal-mask') closeSourceModal(); });
   $('btn-src-modal-add').addEventListener('click', addSourcesBatch);
+  $('src-modal-urls').addEventListener('input', updateSrcModalCount);
   $('src-modal-urls').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) addSourcesBatch(); });
   $('btn-src-grab-all').addEventListener('click', () => grabSourcesAll(false));
   $('btn-src-grab-probe').addEventListener('click', () => grabSourcesAll(true));
@@ -562,6 +563,14 @@ function openSourceModal() {
 
 function closeSourceModal() {
   $('src-modal-mask').classList.add('hidden');
+}
+
+/** 输入时实时统计：多少行将被添加 */
+function updateSrcModalCount() {
+  const text = $('src-modal-urls').value;
+  if (!text.trim()) { $('src-modal-count').textContent = ''; return; }
+  const urls = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  $('src-modal-count').textContent = '将添加 ' + urls.length + ' 个来源（注释 / 空行已忽略）';
 }
 
 /** 批量添加：解析多行文本（支持 # 注释、空行、|后缀、日期变量），逐个入库 */
@@ -777,7 +786,6 @@ function renderPoolPager(d) {
   if (!box) return;
   const page = d.page || 1;
   const pages = d.pages || 1;
-  if (pages <= 1) { box.innerHTML = ''; return; }
   box.innerHTML =
     '<span class="pg-info">共 ' + (d.total || 0) + ' 条 · 第 ' + page + ' / ' + pages + ' 页</span>' +
     '<button type="button" class="btn mini" data-pg="prev"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>' +
@@ -1184,7 +1192,6 @@ function renderLogPager(d) {
   const page = d.page || 1;
   const pages = d.pages || 1;
   const total = d.total || 0;
-  if (pages <= 1) { box.innerHTML = ''; return; }
   box.innerHTML =
     '<span class="pg-info">共 ' + total + ' 条 · 第 ' + page + ' / ' + pages + ' 页</span>' +
     '<button type="button" class="btn mini" data-pg="prev"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>' +
