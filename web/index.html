@@ -117,6 +117,47 @@
           <p class="hint">开启定时采集后，系统会按设定间隔自动抓取「源管理」中启用的来源并入库（可在全站参数 → 抓取 设置间隔与是否测速）。</p>
         </div>
 
+        <!-- 无人值守全自动卡（分步开启 / 一键退出） -->
+        <div class="card auto-pilot-card">
+          <div class="auto-grab-head">
+            <h3>无人值守全自动 <span class="tag" id="ap-tag">未开启</span></h3>
+            <div class="actions">
+              <button type="button" class="btn primary small admin-only hidden" id="btn-ap-wizard">⚙️ 分步开启</button>
+              <button type="button" class="btn danger small admin-only hidden" id="btn-ap-stop">退出无人值守</button>
+            </div>
+          </div>
+          <div class="ap-steps" id="ap-steps">
+            <div class="ap-step" data-step="cron"><span class="ap-ico">⏰</span><div><b>定时自动抓取</b><p>按 cron 定时抓取全部启用来源</p></div><span class="ap-state" id="ap-cron">-</span></div>
+            <div class="ap-step" data-step="probe"><span class="ap-ico">⚡</span><div><b>抓取后自动测速</b><p>抓完立即测速，保证节点可用</p></div><span class="ap-state" id="ap-probe">-</span></div>
+            <div class="ap-step" data-step="remove"><span class="ap-ico">🧹</span><div><b>自动删除不可用</b><p>测速不可达的节点自动删除</p></div><span class="ap-state" id="ap-remove">-</span></div>
+            <div class="ap-step" data-step="cleanup"><span class="ap-ico">🛡️</span><div><b>定期清理与质量门槛</b><p>持续维护节点库健康</p></div><span class="ap-state" id="ap-cleanup">-</span></div>
+          </div>
+          <p class="hint">下一步：<span id="ap-next">-</span> · 上次运行：<span id="ap-last">-</span> · 下次运行：<span id="ap-nextrun">-</span></p>
+        </div>
+
+        <!-- 无人值守分步开启向导（弹窗） -->
+        <div class="modal-mask hidden" id="ap-wizard-mask">
+          <div class="modal ap-wizard">
+            <div class="modal-head">
+              <h3>开启无人值守</h3>
+              <button type="button" class="modal-close" data-close="ap-wizard-mask">×</button>
+            </div>
+            <div class="modal-body">
+              <p class="hint">按步骤逐步开启全自动运营，每步都可独立勾选；也可以直接「全部开启」。</p>
+              <div class="ap-wizard-steps">
+                <label class="ap-witem"><input type="checkbox" id="apw-cron" checked> <span><b>① 定时自动抓取</b><br><small>cron 表达式：</small></span><input type="text" id="apw-cron-expr" value="0 0 * * *" placeholder="0 0 * * * = 每天00:00"></label>
+                <label class="ap-witem"><input type="checkbox" id="apw-probe" checked> <span><b>② 抓取后自动测速</b><br><small>每次抓取完成立即测速，保证拉取节点可用</small></span></label>
+                <label class="ap-witem"><input type="checkbox" id="apw-remove" checked> <span><b>③ 自动删除不可用</b><br><small>测速不可达节点自动停用并删除</small></span></label>
+                <label class="ap-witem"><input type="checkbox" id="apw-cleanup" checked> <span><b>④ 定期清理与质量门槛</b><br><small>启用清理规则与质量门槛，长期维护节点库</small></span></label>
+              </div>
+            </div>
+            <div class="modal-foot">
+              <button type="button" class="btn primary" id="btn-ap-apply">应用所选步骤</button>
+              <button type="button" class="btn ghost" data-close="ap-wizard-mask">取消</button>
+            </div>
+          </div>
+        </div>
+
         <!-- 抓取结果 -->
         <div id="grab-result" class="hidden">
           <div class="card">

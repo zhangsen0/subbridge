@@ -144,14 +144,28 @@ if [[ -z "$NODE_BIN" ]]; then
 fi
 log "使用 Node：$($NODE_BIN -v)"
 
-# 安装依赖（Node<18 时固定 undici 5.28.4 以兼容）
+# 安装依赖（含版本兼容：旧 Node 自动降级关键原生依赖）
 NODE_MAJOR="$(node -e 'console.log(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
 log "安装依赖（npm install --omit=dev）..."
 npm install --omit=dev --no-audit --no-fund
+
+# ---------- 原生依赖版本兼容（保证老系统也能跑，全部可配置） ----------
+# undici：Node<18 用 5.28.4（v6+ 要求 Node18+），否则用默认
 if [[ "$NODE_MAJOR" -lt 18 ]]; then
-  log "Node <18，固定 undici@5.28.4 ..."
+  log "Node <18：固定 undici@5.28.4（v6+ 需 Node18+）..."
   npm install undici@5.28.4 --save-exact --omit=dev --no-audit --no-fund
 fi
+# better-sqlite3（内置 SQLite 驱动）：
+#   Node<18（如 CentOS7 + Node16，glibc 2.17 / gcc 4.8）→ 8.7.0（有 Node16 预编译包，C++11）
+#   Node>=18 → 9.6.0（有 Node18+ 预编译包，C++17）
+# 通过环境变量 SUBBRIDGE_SQLITE_VERSION 可覆盖，留空按 Node 版本自动选择
+SQLITE_VERSION="${SUBBRIDGE_SQLITE_VERSION:-}"
+if [[ -z "$SQLITE_VERSION" ]]; then
+  if [[ "$NODE_MAJOR" -lt 18 ]]; then SQLITE_VERSION="8.7.0"; else SQLITE_VERSION="9.6.0"; fi
+fi
+log "固定 better-sqlite3@${SQLITE_VERSION}（Node${NODE_MAJOR} 兼容版本）..."
+npm install "better-sqlite3@${SQLITE_VERSION}" --save-exact --omit=dev --no-audit --no-fund 2>/dev/null \
+  || npm install "better-sqlite3@${SQLITE_VERSION}" --save-exact --omit=dev --no-audit --no-fund --build-from-source
 
 # 生成 .env（参数全配置化；已存在则保留用户配置）
 TOKEN="${TOKEN:-$(gen_token)}"

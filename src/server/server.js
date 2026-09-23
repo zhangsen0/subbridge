@@ -32,6 +32,7 @@ const { registerDashboardApi } = require('./dashboardApi');
 const { registerLoginApi } = require('./loginApi');
 const { registerPresetsApi } = require('./presetsApi');
 const { registerScenarioApi } = require('./scenarioApi');
+const { registerAutoPilotApi } = require('./autoPilotApi');
 const { registerSourceApi } = require('./sourceApi');
 const { SourceStore } = require('../core/sourceStore');
 const { AutoGrab } = require('../core/autoGrab');
@@ -254,6 +255,9 @@ function createServer(config) {
   // 节点池管理（仅管理员）与实时测速（管理员/普通用户）
   registerPoolApi(app, ctx);
   registerProbeApi(app, ctx);
+
+  // 无人值守全自动模式（分步开启 / 一键退出）
+  registerAutoPilotApi(app, ctx);
 
   // 抓取预览（管理员/普通用户）与驾驶舱概览
   registerGrabApi(app, ctx);

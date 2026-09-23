@@ -8,21 +8,14 @@ const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
 
-const { createStore } = require('../src/store');
+const { createStoreAsync } = require('../src/store');
 
-let hasSqlite = false;
-try {
-  require('better-sqlite3');
-  hasSqlite = true;
-} catch {
-  /* 未安装则跳过 */
-}
-
-const skip = hasSqlite ? false : 'better-sqlite3 未安装，跳过 SQLite 驱动测试';
+// sql.js 为纯 JS + WASM 依赖，任何平台均可加载
+const skip = false;
 
 test('SQLite 驱动：读写配置 / 模板 / 数据文件 / 缓存', { skip }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-sqlite-'));
-  const store = createStore({ storage: { driver: 'sqlite' } }, dir);
+  const store = await createStoreAsync({ storage: { driver: 'sqlite' } }, dir);
 
   // 配置
   await store.writeConfig('server:\n  port: 9999\n');
@@ -47,17 +40,22 @@ test('SQLite 驱动：读写配置 / 模板 / 数据文件 / 缓存', { skip }, 
   store.cacheDelete('k');
   assert.equal(store.cacheGet('k'), undefined);
 
-  // 数据目录
+  // 数据目录（等待防抖落盘后断言文件存在）
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.ok(store.dataDir(), '应返回数据目录');
   assert.ok(fs.existsSync(path.join(dir, 'subbridge.sqlite')), 'sqlite 数据文件应存在');
 });
 
 test('SQLite 驱动：数据落库可跨实例读取（持久化）', { skip }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-sqlite-persist-'));
-  const s1 = createStore({ storage: { driver: 'sqlite' } }, dir);
+  const s1 = await createStoreAsync({ storage: { driver: 'sqlite' } }, dir);
   await s1.writeDataFile('persist.txt', 'persisted-value');
+  // 等待防抖落盘完成
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
 
   // 新实例（模拟重启）读取同一数据库文件
-  const s2 = createStore({ storage: { driver: 'sqlite' } }, dir);
+  const s2 = await createStoreAsync({ storage: { driver: 'sqlite' } }, dir);
   assert.equal(await s2.readDataFile('persist.txt'), 'persisted-value', '重启后数据应保留');
 });

@@ -15,7 +15,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const yaml = require('js-yaml');
-const { createStore } = require('../store');
+const { createStoreAsync } = require('../store');
 
 const DEFAULT_CONFIG_PATH = path.join(__dirname, 'defaults.yaml');
 
@@ -140,7 +140,7 @@ async function loadConfig() {
   const envDataDir = process.env.SUBBRIDGE_DATA_DIR;
   state.dataDir = envDataDir || path.join(process.cwd(), 'data');
   const bootstrapDriver = process.env.SUBBRIDGE_STORAGE_DRIVER || (defaults.storage && defaults.storage.driver) || 'file';
-  const bootstrapStore = createStore({ storage: { driver: bootstrapDriver } }, state.dataDir);
+  const bootstrapStore = await createStoreAsync({ storage: { driver: bootstrapDriver } }, state.dataDir);
   const overlayText = await bootstrapStore.readConfig();
   const overlay = overlayText ? yaml.load(overlayText) || {} : {};
   state.overlay = overlay;
@@ -150,7 +150,7 @@ async function loadConfig() {
   config = applyEnv(config);
 
   // 4. 按最终配置创建存储实例（驱动变更需重启后生效）
-  state.store = createStore(config, state.dataDir);
+  state.store = await createStoreAsync(config, state.dataDir);
 
   state.config = config;
   return config;

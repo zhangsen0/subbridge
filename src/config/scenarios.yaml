@@ -1,384 +1,542 @@
-# ============================================================
-# SubBridge 一键配置场景库
-#
-# 每个场景 = 使用人群 + 推荐规则(选取) + 质量门槛(自动开关) + 清理规则(自动删除)
-#            + 推荐参数补丁（写入覆盖配置，前台全站参数仍可改）
-# 前端「快速开始」向导按此渲染，一步选场景、一键应用。
-# 新增场景：在此文件追加即可，无需改代码（参数全配置化）。
-# ============================================================
-
 scenarios:
-  daily:
-    label: "日常上网"
-    emoji: "🌐"
-    desc: "看网页、刷视频、聊微信都不卡的通用配置，省心均衡。"
-    audience: "大多数人首选"
-    rules:
-      - { type: latency, max_ms: 800 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 30 }
-    quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 1000 }
-      - { type: score, min_score: 40 }
-    cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 30 }
-    config_patch:
-      converter: { udp: true, sort: "" }
-      clash: { url_test_interval: 300 }
-
   streaming:
-    label: "视频流媒体"
-    emoji: "🎬"
-    desc: "看 Netflix / Disney+ / YouTube 4K，优先速度和稳定解锁。"
-    audience: "追剧党、4K 爱好者"
+    label: 影视模式（追剧 / 4K）
+    emoji: 🎬
+    desc: 看 Netflix / Disney+ / YouTube 4K 首选：只留高速节点，延迟低、跑满速，适合影视与流媒体。
+    audience: 追剧党、4K 爱好者（默认推荐场景）
     rules:
-      - { type: speed, min_bps: 5000000 }
-      - { type: sort, key: speed, order: desc }
-      - { type: limit, count: 20 }
+    - type: speed
+      min_bps: 5000000
+    - type: latency
+      max_ms: 500
+    - type: sort
+      key: speed
+      order: desc
+    - type: limit
+      count: 20
     quality_gates:
-      - { type: alive }
-      - { type: speed, min_bps: 1000000 }
-      - { type: score, min_score: 60 }
+    - type: alive
+    - type: latency
+      max_ms: 800
+    - type: speed
+      min_bps: 2000000
+    - type: score
+      min_score: 60
     cleanup_rules:
-      - { type: unreachable }
-      - { type: slow, max_ms: 1000 }
+    - type: unreachable
+    - type: slow
+      max_ms: 800
+    - type: no_probe
+      days: 3
     config_patch:
-      converter: { udp: true }
-      clash: { url_test_url: "https://www.google.com/generate_204" }
-
+      converter:
+        udp: true
+      clash:
+        url_test_url: https://www.google.com/generate_204
+        url_test_interval: 180
+      probe:
+        speed_test: true
+        speed_test_url: https://speed.cloudflare.com/__down?bytes=10000000
+        speed_test_bytes: 10000000
+  daily:
+    label: 日常上网
+    emoji: 🌐
+    desc: 看网页、刷视频、聊微信都不卡的通用配置，省心均衡。
+    audience: 大多数人首选
+    rules:
+    - type: latency
+      max_ms: 800
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 30
+    quality_gates:
+    - type: alive
+    - type: latency
+      max_ms: 1000
+    - type: score
+      min_score: 40
+    cleanup_rules:
+    - type: unreachable
+    - type: stale
+      days: 30
+    config_patch:
+      converter:
+        udp: true
+        sort: ''
+      clash:
+        url_test_interval: 300
   gaming:
-    label: "游戏加速"
-    emoji: "🎮"
-    desc: "低延迟优先，减少跳 ping，适合联机对战。"
-    audience: "玩家"
+    label: 游戏加速
+    emoji: 🎮
+    desc: 低延迟优先，减少跳 ping，适合联机对战。
+    audience: 玩家
     rules:
-      - { type: latency, max_ms: 150 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 15 }
+    - type: latency
+      max_ms: 150
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 15
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 300 }
+    - type: alive
+    - type: latency
+      max_ms: 300
     cleanup_rules:
-      - { type: latency, max_ms: 500 }
-      - { type: unreachable }
+    - type: latency
+      max_ms: 500
+    - type: unreachable
     config_patch:
-      converter: { udp: true }
-      probe: { timeout_ms: 2000 }
-
+      converter:
+        udp: true
+      probe:
+        timeout_ms: 2000
   office:
-    label: "办公远程"
-    emoji: "💼"
-    desc: "稳定优先：开会、传文档、访问公司内网不中断。"
-    audience: "远程办公"
+    label: 办公远程
+    emoji: 💼
+    desc: 稳定优先：开会、传文档、访问公司内网不中断。
+    audience: 远程办公
     rules:
-      - { type: latency, max_ms: 500 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 25 }
+    - type: latency
+      max_ms: 500
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 25
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 800 }
-      - { type: score, min_score: 50 }
+    - type: alive
+    - type: latency
+      max_ms: 800
+    - type: score
+      min_score: 50
     cleanup_rules:
-      - { type: unreachable }
-      - { type: no_probe, days: 7 }
+    - type: unreachable
+    - type: no_probe
+      days: 7
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   crossborder:
-    label: "跨境电商"
-    emoji: "📦"
-    desc: "多区域节点切换，访问 Amazon / eBay / 速卖通等站点。"
-    audience: "跨境卖家"
+    label: 跨境电商
+    emoji: 📦
+    desc: 多区域节点切换，访问 Amazon / eBay / 速卖通等站点。
+    audience: 跨境卖家
     rules:
-      - { type: country, value: ["US", "HK", "JP", "SG", "DE", "UK"] }
-      - { type: latency, max_ms: 600 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 40 }
+    - type: country
+      value:
+      - US
+      - HK
+      - JP
+      - SG
+      - DE
+      - UK
+    - type: latency
+      max_ms: 600
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 40
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 1000 }
+    - type: alive
+    - type: latency
+      max_ms: 1000
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 30 }
+    - type: unreachable
+    - type: stale
+      days: 30
     config_patch:
-      converter: { udp: false }
-
+      converter:
+        udp: false
   social:
-    label: "自媒体运营"
-    emoji: "📱"
-    desc: "稳定访问 TikTok / Instagram / X，上传发布不失败。"
-    audience: "博主、运营"
+    label: 自媒体运营
+    emoji: 📱
+    desc: 稳定访问 TikTok / Instagram / X，上传发布不失败。
+    audience: 博主、运营
     rules:
-      - { type: country, value: ["US", "JP", "SG", "HK"] }
-      - { type: latency, max_ms: 500 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 30 }
+    - type: country
+      value:
+      - US
+      - JP
+      - SG
+      - HK
+    - type: latency
+      max_ms: 500
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 30
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 800 }
-      - { type: score, min_score: 45 }
+    - type: alive
+    - type: latency
+      max_ms: 800
+    - type: score
+      min_score: 45
     cleanup_rules:
-      - { type: unreachable }
-      - { type: slow, max_ms: 1200 }
+    - type: unreachable
+    - type: slow
+      max_ms: 1200
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   student:
-    label: "留学生"
-    emoji: "🎓"
-    desc: "兼顾海外访问与回国看视频，多区域线路齐全。"
-    audience: "留学生"
+    label: 留学生
+    emoji: 🎓
+    desc: 兼顾海外访问与回国看视频，多区域线路齐全。
+    audience: 留学生
     rules:
-      - { type: latency, max_ms: 700 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 35 }
+    - type: latency
+      max_ms: 700
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 35
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 1000 }
-      - { type: score, min_score: 40 }
+    - type: alive
+    - type: latency
+      max_ms: 1000
+    - type: score
+      min_score: 40
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 20 }
+    - type: unreachable
+    - type: stale
+      days: 20
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   homeland:
-    label: "回国加速"
-    emoji: "🇨🇳"
-    desc: "海外回国看剧听歌、用国内 App，优选回国线路。"
-    audience: "海外华人"
+    label: 回国加速
+    emoji: 🇨🇳
+    desc: 海外回国看剧听歌、用国内 App，优选回国线路。
+    audience: 海外华人
     rules:
-      - { type: country, value: ["HK", "TW", "JP", "SG"] }
-      - { type: latency, max_ms: 500 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 20 }
+    - type: country
+      value:
+      - HK
+      - TW
+      - JP
+      - SG
+    - type: latency
+      max_ms: 500
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 20
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 800 }
+    - type: alive
+    - type: latency
+      max_ms: 800
     cleanup_rules:
-      - { type: unreachable }
-      - { type: slow, max_ms: 1200 }
+    - type: unreachable
+    - type: slow
+      max_ms: 1200
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   academic:
-    label: "学术科研"
-    emoji: "🔬"
-    desc: "稳定访问 Google Scholar / 论文库 / GitHub，隐私优先。"
-    audience: "科研人员、学生"
+    label: 学术科研
+    emoji: 🔬
+    desc: 稳定访问 Google Scholar / 论文库 / GitHub，隐私优先。
+    audience: 科研人员、学生
     rules:
-      - { type: latency, max_ms: 600 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 30 }
+    - type: latency
+      max_ms: 600
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 30
     quality_gates:
-      - { type: alive }
-      - { type: score, min_score: 50 }
+    - type: alive
+    - type: score
+      min_score: 50
     cleanup_rules:
-      - { type: unreachable }
-      - { type: no_probe, days: 14 }
+    - type: unreachable
+    - type: no_probe
+      days: 14
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   developer:
-    label: "开发者调试"
-    emoji: "👨‍💻"
-    desc: "稳定访问 GitHub / 云厂商 API / Docker，低延迟不中断。"
-    audience: "程序员"
+    label: 开发者调试
+    emoji: 👨‍💻
+    desc: 稳定访问 GitHub / 云厂商 API / Docker，低延迟不中断。
+    audience: 程序员
     rules:
-      - { type: latency, max_ms: 400 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 25 }
+    - type: latency
+      max_ms: 400
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 25
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 700 }
+    - type: alive
+    - type: latency
+      max_ms: 700
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 15 }
+    - type: unreachable
+    - type: stale
+      days: 15
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   voice:
-    label: "语音视频通话"
-    emoji: "📞"
-    desc: "低延迟低抖动，Teams / Zoom / 微信视频通话更稳。"
-    audience: "经常开会"
+    label: 语音视频通话
+    emoji: 📞
+    desc: 低延迟低抖动，Teams / Zoom / 微信视频通话更稳。
+    audience: 经常开会
     rules:
-      - { type: latency, max_ms: 250 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 15 }
+    - type: latency
+      max_ms: 250
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 15
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 400 }
+    - type: alive
+    - type: latency
+      max_ms: 400
     cleanup_rules:
-      - { type: latency, max_ms: 600 }
-      - { type: unreachable }
+    - type: latency
+      max_ms: 600
+    - type: unreachable
     config_patch:
-      converter: { udp: true }
-      probe: { timeout_ms: 2500 }
-
+      converter:
+        udp: true
+      probe:
+        timeout_ms: 2500
   download:
-    label: "大文件下载"
-    emoji: "⬇️"
-    desc: "带宽优先：下载镜像、模型、大文件跑满速。"
-    audience: "下载党"
+    label: 大文件下载
+    emoji: ⬇️
+    desc: 带宽优先：下载镜像、模型、大文件跑满速。
+    audience: 下载党
     rules:
-      - { type: speed, min_bps: 2000000 }
-      - { type: sort, key: speed, order: desc }
-      - { type: limit, count: 10 }
+    - type: speed
+      min_bps: 2000000
+    - type: sort
+      key: speed
+      order: desc
+    - type: limit
+      count: 10
     quality_gates:
-      - { type: alive }
-      - { type: speed, min_bps: 1000000 }
+    - type: alive
+    - type: speed
+      min_bps: 1000000
     cleanup_rules:
-      - { type: unreachable }
-      - { type: slow, max_ms: 800 }
+    - type: unreachable
+    - type: slow
+      max_ms: 800
     config_patch:
-      converter: { udp: true }
-      probe: { speed_test: true }
-
+      converter:
+        udp: true
+      probe:
+        speed_test: true
   light:
-    label: "轻量浏览"
-    emoji: "🌿"
-    desc: "只保留最快的几个节点，日常浏览够用、切换快。"
-    audience: "轻度用户"
+    label: 轻量浏览
+    emoji: 🌿
+    desc: 只保留最快的几个节点，日常浏览够用、切换快。
+    audience: 轻度用户
     rules:
-      - { type: latency, max_ms: 400 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 8 }
+    - type: latency
+      max_ms: 400
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 8
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 600 }
+    - type: alive
+    - type: latency
+      max_ms: 600
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 15 }
+    - type: unreachable
+    - type: stale
+      days: 15
     config_patch:
-      converter: { udp: false }
-
+      converter:
+        udp: false
   resilient:
-    label: "高可用容灾"
-    emoji: "🛡️"
-    desc: "多线路自动切换，一条挂了自动换另一条，尽量不断网。"
-    audience: "稳定性要求高"
+    label: 高可用容灾
+    emoji: 🛡️
+    desc: 多线路自动切换，一条挂了自动换另一条，尽量不断网。
+    audience: 稳定性要求高
     rules:
-      - { type: latency, max_ms: 800 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 50 }
+    - type: latency
+      max_ms: 800
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 50
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 1200 }
-      - { type: score, min_score: 35 }
+    - type: alive
+    - type: latency
+      max_ms: 1200
+    - type: score
+      min_score: 35
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 10 }
+    - type: unreachable
+    - type: stale
+      days: 10
     config_patch:
-      converter: { udp: true }
-      clash: { url_test_interval: 120 }
-
+      converter:
+        udp: true
+      clash:
+        url_test_interval: 120
   privacy:
-    label: "隐私保护"
-    emoji: "🔒"
-    desc: "全节点 TLS + 加密协议优先，保护上网隐私。"
-    audience: "重视隐私"
+    label: 隐私保护
+    emoji: 🔒
+    desc: 全节点 TLS + 加密协议优先，保护上网隐私。
+    audience: 重视隐私
     rules:
-      - { type: type, value: ["vless", "trojan", "hysteria2"] }
-      - { type: latency, max_ms: 600 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 20 }
+    - type: type
+      value:
+      - vless
+      - trojan
+      - hysteria2
+    - type: latency
+      max_ms: 600
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 20
     quality_gates:
-      - { type: alive }
-      - { type: score, min_score: 55 }
+    - type: alive
+    - type: score
+      min_score: 55
     cleanup_rules:
-      - { type: unreachable }
-      - { type: no_probe, days: 10 }
+    - type: unreachable
+    - type: no_probe
+      days: 10
     config_patch:
-      converter: { udp: true }
-
+      converter:
+        udp: true
   live:
-    label: "直播推流"
-    emoji: "📡"
-    desc: "低延迟上行优先，适合直播与视频号推流。"
-    audience: "主播、创作者"
+    label: 直播推流
+    emoji: 📡
+    desc: 低延迟上行优先，适合直播与视频号推流。
+    audience: 主播、创作者
     rules:
-      - { type: latency, max_ms: 200 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 12 }
+    - type: latency
+      max_ms: 200
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 12
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 350 }
+    - type: alive
+    - type: latency
+      max_ms: 350
     cleanup_rules:
-      - { type: latency, max_ms: 500 }
-      - { type: unreachable }
+    - type: latency
+      max_ms: 500
+    - type: unreachable
     config_patch:
-      converter: { udp: true }
-      probe: { timeout_ms: 2000 }
-
+      converter:
+        udp: true
+      probe:
+        timeout_ms: 2000
   crawler:
-    label: "数据采集"
-    emoji: "🤖"
-    desc: "多节点轮换采集，避免单一 IP 被限，抓取任务更稳。"
-    audience: "爬虫、数据分析"
+    label: 数据采集
+    emoji: 🤖
+    desc: 多节点轮换采集，避免单一 IP 被限，抓取任务更稳。
+    audience: 爬虫、数据分析
     rules:
-      - { type: latency, max_ms: 1000 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 60 }
+    - type: latency
+      max_ms: 1000
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 60
     quality_gates:
-      - { type: alive }
+    - type: alive
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 7 }
+    - type: unreachable
+    - type: stale
+      days: 7
     config_patch:
-      converter: { udp: false }
-      probe: { timeout_ms: 5000 }
-
+      converter:
+        udp: false
+      probe:
+        timeout_ms: 5000
   mobile:
-    label: "移动端省电"
-    emoji: "📲"
-    desc: "少而精的节点列表，手机端切换快、耗电少。"
-    audience: "手机用户"
+    label: 移动端省电
+    emoji: 📲
+    desc: 少而精的节点列表，手机端切换快、耗电少。
+    audience: 手机用户
     rules:
-      - { type: latency, max_ms: 500 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 10 }
+    - type: latency
+      max_ms: 500
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 10
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 800 }
+    - type: alive
+    - type: latency
+      max_ms: 800
     cleanup_rules:
-      - { type: unreachable }
-      - { type: stale, days: 20 }
+    - type: unreachable
+    - type: stale
+      days: 20
     config_patch:
-      converter: { udp: true, sort: "latency" }
-
+      converter:
+        udp: true
+        sort: latency
   enterprise:
-    label: "企业组网"
-    emoji: "🏢"
-    desc: "稳定线路 + 多出口，办公网络与分公司互通更可靠。"
-    audience: "企业 IT"
+    label: 企业组网
+    emoji: 🏢
+    desc: 稳定线路 + 多出口，办公网络与分公司互通更可靠。
+    audience: 企业 IT
     rules:
-      - { type: latency, max_ms: 600 }
-      - { type: sort, key: latency, order: asc }
-      - { type: limit, count: 40 }
+    - type: latency
+      max_ms: 600
+    - type: sort
+      key: latency
+      order: asc
+    - type: limit
+      count: 40
     quality_gates:
-      - { type: alive }
-      - { type: latency, max_ms: 900 }
-      - { type: score, min_score: 50 }
+    - type: alive
+    - type: latency
+      max_ms: 900
+    - type: score
+      min_score: 50
     cleanup_rules:
-      - { type: unreachable }
-      - { type: no_probe, days: 5 }
+    - type: unreachable
+    - type: no_probe
+      days: 5
     config_patch:
-      converter: { udp: true }
-      clash: { url_test_interval: 180 }
-
+      converter:
+        udp: true
+      clash:
+        url_test_interval: 180
   power:
-    label: "极客折腾"
-    emoji: "⚡"
-    desc: "全功能开放：不限制数量，全部节点按延迟排序，自由挑选。"
-    audience: "进阶用户"
+    label: 极客折腾
+    emoji: ⚡
+    desc: 全功能开放：不限制数量，全部节点按延迟排序，自由挑选。
+    audience: 进阶用户
     rules:
-      - { type: sort, key: latency, order: asc }
+    - type: sort
+      key: latency
+      order: asc
     quality_gates:
-      - { type: alive }
+    - type: alive
     cleanup_rules:
-      - { type: unreachable }
+    - type: unreachable
     config_patch:
-      converter: { udp: true, sort: "" }
+      converter:
+        udp: true
+        sort: ''

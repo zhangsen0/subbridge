@@ -16,15 +16,48 @@
  */
 
 const { startBridge, isSupportedProxyType, unsupportedReason } = require('./proxyBridge');
+const net = require('node:net');
 
 /**
- * 从节点池挑选最优代理（逐候选尝试建立桥，取第一个可用）
+ * TCP 快速测速：测量到代理端口的建连延迟（毫秒），失败返回 null。
+ * 纯 TCP 握手，不依赖具体代理协议，毫秒级完成。
+ * @param {string} server 代理服务器地址
+ * @param {number} port 代理端口
+ * @param {number} timeoutMs 超时（毫秒）
+ * @returns {Promise<number|null>} 延迟毫秒；连接失败/超时返回 null
+ */
+function tcpLatency(server, port, timeoutMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let done = false;
+    const sock = net.connect({ host: server, port, timeout: timeoutMs });
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try { sock.destroy(); } catch { /* 忽略 */ }
+      resolve(val);
+    };
+    sock.once('connect', () => finish(Date.now() - start));
+    sock.once('error', () => finish(null));
+    sock.once('timeout', () => finish(null));
+  });
+}
+
+/**
+ * 从节点池挑选最优代理（先并发 TCP 预测速，过滤不可达/超延迟，取最快代理）
  * @param {object} nodePool 节点池实例
- * @param {{types?: string[], ttlMs?: number}} opts 类型白名单与桥复用 TTL
+ * @param {{
+ *   types?: string[], ttlMs?: number,
+ *   skipLocalnode?: boolean,
+ *   tcpProbe?: boolean, tcpProbeTimeoutMs?: number, tcpProbeConcurrency?: number, maxLatencyMs?: number,
+ * }} opts 类型白名单、桥复用 TTL、TCP 测速参数
  * @returns {Promise<null|{url: string, node: object, skipped: string[]}>}
  *   返回上游代理 URL（http/https/socks/ss/trojan/vless 均可）、选中节点与跳过原因
  */
-async function pickProxyFromPool(nodePool, { types, ttlMs, skipLocalnode = false } = {}) {
+async function pickProxyFromPool(nodePool, {
+  types, ttlMs, skipLocalnode = false,
+  tcpProbe = true, tcpProbeTimeoutMs = 3000, tcpProbeConcurrency = 6, maxLatencyMs = 0,
+} = {}) {
   if (!nodePool) return { url: null, node: null, skipped: [] };
   const wanted = Array.isArray(types) && types.length
     ? types.map((t) => String(t).toLowerCase()).filter(Boolean)
@@ -40,17 +73,44 @@ async function pickProxyFromPool(nodePool, { types, ttlMs, skipLocalnode = false
   );
   if (!candidates.length) return { url: null, node: null, skipped: [] };
 
-  candidates.sort((a, b) => {
-    const pa = a.probe;
-    const pb = b.probe;
-    const aa = pa && pa.alive ? 1 : 0;
-    const ab = pb && pb.alive ? 1 : 0;
-    if (aa !== ab) return ab - aa;
-    const la = pa && pa.latencyMs != null ? pa.latencyMs : Number.POSITIVE_INFINITY;
-    const lb = pb && pb.latencyMs != null ? pb.latencyMs : Number.POSITIVE_INFINITY;
-    if (la !== lb) return la - lb;
-    return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-  });
+  // 第一层：TCP 快速测速（保证抓取代理的网速）——并发测速，过滤不可达与超延迟
+  if (tcpProbe) {
+    const concurrency = Math.max(1, Math.min(Number(tcpProbeConcurrency) || 6, 20));
+    const timeoutMs = Math.max(500, Number(tcpProbeTimeoutMs) || 3000);
+    const maxLatency = Number(maxLatencyMs) > 0 ? Number(maxLatencyMs) : 0;
+    const measured = new Map();
+    let idx = 0;
+    async function worker() {
+      while (idx < candidates.length) {
+        const node = candidates[idx++];
+        const lat = await tcpLatency(node.server, node.port, timeoutMs);
+        measured.set(node, lat);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()));
+    const alive = candidates.filter((n) => {
+      const lat = measured.get(n);
+      return lat != null && (maxLatency === 0 || lat <= maxLatency);
+    });
+    if (alive.length) {
+      alive.sort((a, b) => measured.get(a) - measured.get(b));
+      candidates.length = 0;
+      candidates.push(...alive);
+    }
+  } else {
+    // 未开 TCP 测速：按已有探测数据排序（alive 优先 → 延迟升序 → 更新新的优先）
+    candidates.sort((a, b) => {
+      const pa = a.probe;
+      const pb = b.probe;
+      const aa = pa && pa.alive ? 1 : 0;
+      const ab = pb && pb.alive ? 1 : 0;
+      if (aa !== ab) return ab - aa;
+      const la = pa && pa.latencyMs != null ? pa.latencyMs : Number.POSITIVE_INFINITY;
+      const lb = pb && pb.latencyMs != null ? pb.latencyMs : Number.POSITIVE_INFINITY;
+      if (la !== lb) return la - lb;
+      return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
+  }
 
   const skipped = [];
   for (const node of candidates) {
@@ -71,4 +131,4 @@ async function pickProxyFromPool(nodePool, { types, ttlMs, skipLocalnode = false
   return { url: null, node: null, skipped };
 }
 
-module.exports = { pickProxyFromPool };
+module.exports = { pickProxyFromPool, tcpLatency };

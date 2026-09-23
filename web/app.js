@@ -551,7 +551,7 @@ function initSources() {
     loadSources();
   });
   $('src-new-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') addSource(); });
-  loadAutoGrabStatus();
+  loadAutoGrabStatus(); loadAutoPilot();
 }
 
 function openSourceModal() {
@@ -726,6 +726,79 @@ async function loadAutoGrabStatus() {
   } catch (err) {
     /* 自动采集卡展示失败不阻断 */
   }
+}
+
+/* ---------- 无人值守全自动 ---------- */
+async function loadAutoPilot() {
+  try {
+    const d = await apiJson('/api/auto-pilot');
+    const tag = $('ap-tag');
+    if (!tag) return;
+    tag.textContent = d.enabled ? '已开启' : '未开启';
+    tag.className = 'tag' + (d.enabled ? ' ok' : '');
+    const st = {};
+    (d.steps || []).forEach((s) => { st[s.id] = s.applied; });
+    setApStep('cron', st.cron);
+    setApStep('probe', st.probe);
+    setApStep('remove', st.remove);
+    setApStep('cleanup', st.cleanup);
+    $('ap-next').textContent = d.next_run_at ? new Date(d.next_run_at).toLocaleString() : (d.cron ? '已按 cron 调度' : '未开启');
+    $('ap-last').textContent = d.last_run_at ? new Date(d.last_run_at).toLocaleString() : '从未';
+    $('ap-nextrun').textContent = d.next_run_at ? new Date(d.next_run_at).toLocaleString() : '-';
+    $('btn-ap-stop').classList.toggle('hidden', !d.enabled);
+  } catch (err) {
+    /* 无人值守卡展示失败不阻断 */
+  }
+}
+function setApStep(id, applied) {
+  const cell = document.querySelector('.ap-step[data-step="' + id + '"] .ap-state');
+  if (!cell) return;
+  cell.textContent = applied ? '已开启' : '未开启';
+  cell.className = 'ap-state' + (applied ? ' on' : '');
+  document.querySelector('.ap-step[data-step="' + id + '"]').classList.toggle('on', !!applied);
+}
+
+function initAutoPilot() {
+  const wizBtn = $('btn-ap-wizard');
+  if (wizBtn) wizBtn.addEventListener('click', () => $('ap-wizard-mask').classList.remove('hidden'));
+  const closeBtns = document.querySelectorAll('[data-close="ap-wizard-mask"]');
+  closeBtns.forEach((b) => b.addEventListener('click', () => $('ap-wizard-mask').classList.add('hidden')));
+  const apply = $('btn-ap-apply');
+  if (apply) apply.addEventListener('click', async () => {
+    const steps = [];
+    if ($('apw-cron').checked) steps.push('cron');
+    if ($('apw-probe').checked) steps.push('probe');
+    if ($('apw-remove').checked) steps.push('remove');
+    if ($('apw-cleanup').checked) steps.push('cleanup');
+    if (!steps.length) { toast('请至少勾选一个步骤', true); return; }
+    const cron = $('apw-cron-expr').value.trim();
+    apply.disabled = true;
+    try {
+      const d = await apiJson('/api/auto-pilot/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps, cron }),
+      });
+      toast('无人值守已开启：' + (d.applied || []).join(' / '));
+      $('ap-wizard-mask').classList.add('hidden');
+      loadAutoPilot(); if (currentRole === 'admin') loadLogs(true);
+    } catch (err) {
+      toast('开启失败：' + err.message, true);
+    } finally {
+      apply.disabled = false;
+    }
+  });
+  const stop = $('btn-ap-stop');
+  if (stop) stop.addEventListener('click', async () => {
+    if (!confirm('确认退出无人值守？将关闭定时抓取/自动测速/自动删除/定期清理。')) return;
+    try {
+      const d = await apiJson('/api/auto-pilot/stop', { method: 'POST' });
+      toast('已退出无人值守');
+      loadAutoPilot(); if (currentRole === 'admin') loadLogs(true);
+    } catch (err) {
+      toast('退出失败：' + err.message, true);
+    }
+  });
 }
 
 /* ---------- 专家调试 ---------- */
@@ -1447,6 +1520,10 @@ const CONFIG_FIELDS = [
   { group: '抓取', key: 'fetcher.pool_proxy_skip_localnode', label: '池代理排除本机节点', type: 'bool', hint: '本机节点出口=本机网络，抓境外源时用它中转依然连不通；默认开启排除。' },
   { group: '抓取', key: 'fetcher.proxy_pool_types', label: '池代理类型白名单', type: 'list', hint: '每行一个类型，支持 http / https / socks4 / socks5 / ss / trojan / vless（后四种自动经本地协议桥转为 http 上游）；vmess、ws 传输、hysteria2 / tuic 暂不支持自动中转。' },
   { group: '抓取', key: 'fetcher.proxy_bridge_ttl_seconds', label: '协议桥复用 TTL（秒）', type: 'number', hint: '把 socks/ss/trojan/vless 节点转成本地 http 上游后，桥端口复用的存活秒数，默认 300。' },
+  { group: '抓取', key: 'fetcher.proxy_tcp_probe', label: '抓取代理先测速', type: 'boolean', hint: '抓取前对节点池候选代理做 TCP 快速测速，保证用网速快的代理中转。' },
+  { group: '抓取', key: 'fetcher.proxy_tcp_probe_timeout_ms', label: '代理测速超时（毫秒）', type: 'number', hint: '超过该时间视为代理不可达，跳过。' },
+  { group: '抓取', key: 'fetcher.proxy_tcp_probe_concurrency', label: '代理测速并发数', type: 'number', hint: '同时测速多少个候选代理。' },
+  { group: '抓取', key: 'fetcher.proxy_max_latency_ms', label: '代理延迟上限（毫秒）', type: 'number', hint: '0=不限制；超过上限的代理不用于抓取。' },
   { group: '抓取', key: 'fetcher.headers', label: '抓取自定义请求头（JSON）', type: 'json', hint: '如 {"Authorization":"Bearer xxx","Cookie":"a=1"}；支持鉴权订阅源；可被 ?headers= 参数覆盖。' },
   { group: '抓取', key: 'fetcher.relay_through_localnode', label: '抓取走本机节点自中继', type: 'bool', hint: '未配上游代理且池无可用代理时，经本机 HTTP 节点中转采集（顺带验证本机节点）。' },
   { group: '抓取', key: 'fetcher.block_private', label: 'SSRF 防护（拦截内网）', type: 'bool', hint: '拦截抓取内网地址，防止 SSRF；内网测试时关闭。' },
@@ -1780,7 +1857,7 @@ async function init() {
 document.addEventListener('DOMContentLoaded', () => {
   // 逐个初始化并隔离异常：单个模块出错不阻断其余功能（含登录态识别）
   const steps = [
-    ['主题', initTheme], ['折叠', initCollapse], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab],
+    ['主题', initTheme], ['折叠', initCollapse], ['向导卡', initGuide], ['难度', initMode], ['登录', initLogin], ['抓取', initGrab], ['无人值守', initAutoPilot],
     ['源管理', initSources], ['调试', initDebug], ['节点库', initPool], ['规则', initRules], ['质量', initQuality],
     ['清理', initCleanup], ['日志', initLogs], ['本地节点', initLocalNode], ['配置', initConfig],
     ['模板', initTemplates], ['备份', initBackup],

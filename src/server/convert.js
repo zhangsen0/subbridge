@@ -90,7 +90,16 @@ async function effectiveFetcherConfig(config, ctx) {
         : ['http', 'socks5', 'socks4', 'ss', 'trojan', 'vless'];
       const ttlMs = Number(fetcher.proxy_bridge_ttl_seconds || 300) * 1000;
       const skipLocalnode = fetcher.pool_proxy_skip_localnode !== false;
-      const picked = await pickProxyFromPool(ctx.nodePool, { types, ttlMs, skipLocalnode });
+      // 抓取代理先测速：保证用网速快的代理中转（全部可配置）
+      const picked = await pickProxyFromPool(ctx.nodePool, {
+        types,
+        ttlMs,
+        skipLocalnode,
+        tcpProbe: fetcher.proxy_tcp_probe !== false,
+        tcpProbeTimeoutMs: Number(fetcher.proxy_tcp_probe_timeout_ms || 3000),
+        tcpProbeConcurrency: Number(fetcher.proxy_tcp_probe_concurrency || 6),
+        maxLatencyMs: Number(fetcher.proxy_max_latency_ms || 0),
+      });
       if (picked && picked.url) {
         result.fallback_proxy = picked.url;
         result._pool_proxy = picked.node;
