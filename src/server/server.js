@@ -163,24 +163,29 @@ function createServer(config) {
     time: new Date().toISOString(),
   }));
 
-  // Web 前台
+  // Web 前台（页面与静态资源一律禁用缓存，避免用户浏览器加载旧版前端导致"保存不生效/状态不统一"）
   const webDir = path.join(__dirname, '..', '..', 'web');
+  const noCache = (reply) => reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   app.get('/', async (req, reply) => {
+    noCache(reply);
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'index.html')));
   });
 
   // 登录页（公开，无需令牌）
   app.get('/login', async (req, reply) => {
+    noCache(reply);
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'login.html')));
   });
 
   // 一键配置向导页（公开加载页面，数据接口受令牌保护）
   app.get('/setup', async (req, reply) => {
+    noCache(reply);
     reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'setup.html')));
   });
 
-  // 静态资源（从磁盘读取，便于前台实时修改）
+  // 静态资源（从磁盘读取，便于前台实时修改；禁用缓存避免旧版 JS/CSS 残留）
   app.get('/static/:file', async (req, reply) => {
+    noCache(reply);
     const file = path.basename(req.params.file); // 仅允许文件名，防路径穿越
     const filePath = path.join(webDir, file);
     try {
