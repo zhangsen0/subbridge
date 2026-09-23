@@ -39,6 +39,7 @@ function registerProbeApi(app, ctx) {
           timeoutMs: probeCfg.timeout_ms || 3000,
           speedTest: !!probeCfg.speed_test,
           speedTestUrl: probeCfg.speed_test_url,
+          speedTestUrls: probeCfg.speed_test_urls,
           speedTestBytes: probeCfg.speed_test_bytes,
           // 上游探测代理：探测配置优先，回退抓取配置
           proxyUrl: probeCfg.upstream_proxy || (ctx.config.fetcher && ctx.config.fetcher.upstream_proxy) || '',

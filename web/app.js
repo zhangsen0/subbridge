@@ -1633,6 +1633,7 @@ const CONFIG_FIELDS = [
   { group: '检测', key: 'probe.drop_unreachable', label: '剔除不可达节点', type: 'bool', hint: '仅在当前输出剔除，节点池仍保留。' },
   { group: '检测', key: 'probe.speed_test', label: 'http/socks5 节点真实测速', type: 'bool', hint: '开启后对 http/socks5 节点做真实下载测速（较慢）。' },
   { group: '检测', key: 'probe.speed_test_url', label: '测速下载地址', type: 'text', hint: '' },
+  { group: '检测', key: 'probe.speed_test_urls', label: '测速地址多候选（每行一个，优先）', type: 'list', hint: '数组优先于上面的单地址，逐个尝试首个可达' },
   { group: '检测', key: 'probe.speed_test_bytes', label: '测速采样字节数', type: 'number', hint: '' },
   { group: '检测', key: 'probe.append_latency', label: '延迟追加到节点名', type: 'bool', hint: '如「节点 [120ms]」。' },
   { group: '订阅源', key: 'subscription.url_scheme', label: '订阅链接协议', type: 'select', options: ['auto', 'http', 'https'], hint: 'auto 自动信任反代头（平台强制 HTTPS 时复制即为 https）。' },

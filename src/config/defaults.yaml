@@ -204,6 +204,11 @@ probe:
   speed_test: false
   # 测速下载地址
   speed_test_url: "https://speed.cloudflare.com/__down?bytes=200000"
+  # 测速地址多候选（数组，优先于 speed_test_url）：逐个尝试，首个可达的用于测速，提高测速成功率
+  speed_test_urls:
+    - "https://speed.cloudflare.com/__down?bytes=200000"
+    - "http://speedtest.tele2.net/100KB.zip"
+    - "http://proof.ovh.net/files/1Mb.dat"
   # 测速采样字节数（收到该字节量即结束）
   speed_test_bytes: 200000
   # 测速时协议桥复用 TTL（毫秒，默认 60000）：桥接协议（vless/trojan/ss 等）测速后及时释放

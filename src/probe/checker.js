@@ -71,45 +71,58 @@ async function checkNode(node, opts) {
   // 真实下载测速（opts.speedTest 开启时）：
   // 所有支持协议统一经协议桥（http/socks5 直返、vless/trojan/ss/vmess 等建本地桥）
   // 请求测速地址并下载采样字节 —— 请求 2xx 且完成下载才算可用（TCP 通不代表协议可用）。
-  if (opts.speedTest && opts.speedTestUrl) {
-    try {
-      // 兼容旧路径：http/socks5 直连隧道测速（无桥开销）
-      if (node.type === 'http' || node.type === 'socks5') {
-        probe.speedBps = await speedTestViaTunnel(
-          node,
-          opts.speedTestUrl,
-          opts.speedTestBytes || 200000,
-          opts.timeoutMs || 5000,
-        );
-        if (probe.speedBps == null) probe.alive = false;
-      } else {
-        // 桥接协议：经协议桥转 http 上游后真实请求测速
-        const { startBridge, isSupportedProxyType } = require('../core/proxyBridge');
-        if (!isSupportedProxyType(node.type)) {
-          probe.alive = false;
-        } else {
-          const bridge = await startBridge(node, { ttlMs: opts.bridgeTtlMs || 60000 });
-          if (bridge && bridge.url) {
-            const speed = await speedViaHttpProxy(
-              bridge.url,
-              opts.speedTestUrl,
+  if (opts.speedTest) {
+    // 测速地址支持多候选轮换（speedTestUrls 数组优先，回退单地址）：首个可达的地址用于测速
+    const urls = (Array.isArray(opts.speedTestUrls) && opts.speedTestUrls.length)
+      ? opts.speedTestUrls.filter(Boolean)
+      : (opts.speedTestUrl ? [opts.speedTestUrl] : []);
+    if (urls.length) {
+      try {
+        // 兼容旧路径：http/socks5 直连隧道测速（无桥开销）
+        if (node.type === 'http' || node.type === 'socks5') {
+          for (const url of urls) {
+            probe.speedBps = await speedTestViaTunnel(
+              node,
+              url,
               opts.speedTestBytes || 200000,
               opts.timeoutMs || 5000,
             );
-            if (speed != null) {
-              probe.alive = true;
-              probe.speedBps = speed;
+            if (probe.speedBps != null) break;
+          }
+          if (probe.speedBps == null) probe.alive = false;
+        } else {
+          // 桥接协议：经协议桥转 http 上游后真实请求测速
+          const { startBridge, isSupportedProxyType } = require('../core/proxyBridge');
+          if (!isSupportedProxyType(node.type)) {
+            probe.alive = false;
+          } else {
+            const bridge = await startBridge(node, { ttlMs: opts.bridgeTtlMs || 60000 });
+            if (bridge && bridge.url) {
+              for (const url of urls) {
+                const speed = await speedViaHttpProxy(
+                  bridge.url,
+                  url,
+                  opts.speedTestBytes || 200000,
+                  opts.timeoutMs || 5000,
+                );
+                if (speed != null) {
+                  probe.alive = true;
+                  probe.speedBps = speed;
+                  break;
+                }
+              }
+              if (probe.speedBps == null) {
+                // 所有测速地址均失败 → 真实代理请求失败，判定不可用（即使 TCP 通）
+                probe.alive = false;
+              }
             } else {
-              // 真实代理请求失败 → 判定不可用（即使 TCP 通）
               probe.alive = false;
             }
-          } else {
-            probe.alive = false;
           }
         }
+      } catch {
+        probe.alive = false;
       }
-    } catch {
-      probe.alive = false;
     }
   }
   return node;
