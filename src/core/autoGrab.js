@@ -123,6 +123,15 @@ class AutoGrab {
     const cfg = this.ctx.config;
     const probe = !!(cfg.grab && cfg.grab.auto_probe);
     const items = this.ctx.sources.list().filter((s) => s.enabled !== false && s.auto !== false);
+    // 主订阅地址一并纳入自动采集（grab.include_main_urls 默认开）：主订阅节点也入池，
+    // 与"输出不合并主订阅（merge_main_urls=false）"是两回事——入池后可被池规则选中输出
+    const includeMain = (cfg.grab && cfg.grab.include_main_urls) !== false;
+    if (includeMain) {
+      const mains = (cfg.subscription && cfg.subscription.main_urls || []).filter(Boolean);
+      for (const m of mains) {
+        items.push({ url: String(m), name: '主订阅', auto: true, enabled: true });
+      }
+    }
     // 登记后台任务（前台「后台任务」标签页实时查看进度）
     const task = this.ctx.taskManager
       ? this.ctx.taskManager.start({ type: 'auto-grab', title: `自动采集来源 ${items.length} 个`, total: items.length })
