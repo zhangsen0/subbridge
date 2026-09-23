@@ -59,8 +59,8 @@ class SqliteStore {
     } else {
       this._ready = loadDriver().then((m) => this._init(m));
     }
-    // 进程退出时同步冲刷未落盘数据
-    this._exitFlush = () => { try { this._flushSync(); } catch { /* 忽略退出期异常 */ } };
+    // 进程退出时同步冲刷未落盘数据（无条件重刷当前内存状态，覆盖未完成的异步落盘）
+    this._exitFlush = () => { try { this._dirty = true; this._flushSync(); } catch { /* 忽略退出期异常 */ } };
     process.on('exit', this._exitFlush);
   }
 
@@ -73,19 +73,21 @@ class SqliteStore {
     return this.db;
   }
 
-  /* ---------- 持久化（防抖 + 退出冲刷） ---------- */
+  /* ---------- 持久化（异步落盘 + 退出同步兜底） ---------- */
 
-  /** 标记脏并安排一次防抖落盘 */
-  _markDirty() {
-    this._dirty = true;
-    if (this._flushTimer) return;
-    this._flushTimer = setImmediate(() => {
-      this._flushTimer = null;
-      this._flushSync();
-    });
+  /** 异步导出内存库到磁盘（原子写：先写临时文件再改名；不阻塞事件循环） */
+  async _flushAsync() {
+    // 循环直到无新写入：写期间产生的脏数据在下一轮继续落盘，避免丢失
+    while (this._dirty && this.db) {
+      this._dirty = false;
+      const data = Buffer.from(this.db.export());
+      const tmp = this.dbPath + '.tmp';
+      await fs.promises.writeFile(tmp, data);
+      await fs.promises.rename(tmp, this.dbPath);
+    }
   }
 
-  /** 同步导出内存库到磁盘文件 */
+  /** 同步导出（仅进程退出兜底使用，保证 SIGTERM/exit 前数据落盘） */
   _flushSync() {
     if (!this._dirty || !this.db) return;
     this._dirty = false;
@@ -93,6 +95,12 @@ class SqliteStore {
     const tmp = this.dbPath + '.tmp';
     fs.writeFileSync(tmp, data);
     fs.renameSync(tmp, this.dbPath);
+  }
+
+  /** 排程一次异步落盘（写操作快速返回，不阻塞抓取/测速/订阅等主流程） */
+  _scheduleFlush() {
+    if (this._flushTimer) return;
+    this._flushTimer = Promise.resolve().then(() => this._flushAsync()).finally(() => { this._flushTimer = null; });
   }
 
   /** 数据目录路径 */
@@ -123,7 +131,10 @@ class SqliteStore {
     stmt.bind([key, String(value)]);
     stmt.step();
     stmt.free();
-    this._markDirty();
+    // 异步落盘：写操作立即返回，flush 在事件循环外执行，保证抓取/测速/配置保存不阻塞；
+    // 进程退出（SIGTERM/exit）时由同步 _flushSync 兜底，确保数据落盘。
+    this._dirty = true;
+    this._scheduleFlush();
   }
 
   /* ---------- 覆盖配置 ---------- */
