@@ -116,9 +116,16 @@ function createServer(config) {
   localnode.start();
   setImmediate(() => { syncLocalNodeToPool().catch(() => {}); });
 
+  // 端口复用挂载（幂等）：shared 模式下把 HTTP 代理 CONNECT 隧道挂到主服务；
+  // 支持"启动时非 shared、运行中切换 shared"的场景（保存配置后立即生效）
+  const mountSharedProxy = () => {
+    if (localnode.isSharedMode()) localnode.attachTo(app.server);
+  };
+
   // 配置变更后应用运行时（保存本地节点等配置立即生效，无需重启服务）
   ctx.applyConfig = async () => {
     await localnode.restart();
+    mountSharedProxy();
     await syncLocalNodeToPool();
   };
 
@@ -128,18 +135,17 @@ function createServer(config) {
   });
 
   // 端口复用模式（localnode.mode=shared）：HTTP 代理 CONNECT 隧道挂到主服务端口，
-  // 绝对 URL 转发（GET http://host/...）在此钩子拦截（必须先于鉴权钩子，代理请求走代理认证而非页面令牌）
-  if (localnode.isSharedMode()) {
-    localnode.attachTo(app.server);
-    app.addHook('onRequest', (req, reply, done) => {
-      if (localnode.handleAbsolute(req.raw, reply.raw)) {
-        // 已由 HTTP 代理处理器接管底层 socket，不再进入 Fastify 路由与鉴权
-        reply.hijack();
-        return;
-      }
-      done();
-    });
-  }
+  // 绝对 URL 转发（GET http://host/...）在此钩子拦截（必须先于鉴权钩子，代理请求走代理认证而非页面令牌）。
+  // 钩子无条件注册、内部按模式判断：运行中切换 shared 也能立即接管（无需重启服务）
+  app.addHook('onRequest', (req, reply, done) => {
+    if (localnode.isSharedMode() && localnode.handleAbsolute(req.raw, reply.raw)) {
+      // 已由 HTTP 代理处理器接管底层 socket，不再进入 Fastify 路由与鉴权
+      reply.hijack();
+      return;
+    }
+    done();
+  });
+  mountSharedProxy();
 
   // 多级用户鉴权钩子（/ping、/login 与静态资源除外）
   app.addHook('onRequest', async (req, reply) => {
