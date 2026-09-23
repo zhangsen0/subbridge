@@ -201,12 +201,21 @@ function createServer(config) {
   // Web 前台（页面与静态资源一律禁用缓存，避免用户浏览器加载旧版前端导致"保存不生效/状态不统一"）
   const webDir = path.join(__dirname, '..', '..', 'web');
   const noCache = (reply) => reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  // 静态资源版本指纹：每次部署自动更新（取最新文件 mtime），彻底避免浏览器缓存旧版 JS/CSS
+  const webStamp = () => {
+    try {
+      const t = fs.statSync(path.join(webDir, 'app.js')).mtimeMs;
+      return String(Math.floor(t / 1000));
+    } catch { return String(Date.now()); }
+  };
+  const stampWeb = (html) => String(html).replace(/\/static\/(app\.js|style\.css)/g, (m) => m + '?v=' + webStamp());
+
   app.get('/', async (req, reply) => {
     noCache(reply);
     // 主页页面公开返回，登录态由前端 identifyRole 识别：
     //   已登录（localStorage 令牌）→ 正常展示；未登录 → 前端自动跳转 /login。
     // 这样登录成功后 location.href='/' 不再被服务端 302 弹回登录页。
-    reply.type('text/html; charset=utf-8').send(fs.readFileSync(path.join(webDir, 'index.html')));
+    reply.type('text/html; charset=utf-8').send(stampWeb(fs.readFileSync(path.join(webDir, 'index.html'))));
   });
 
   // 登录页（公开，无需令牌）

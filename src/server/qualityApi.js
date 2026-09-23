@@ -61,10 +61,11 @@ async function maybeCleanup(ctx, { force = false } = {}) {
     ctx.fetchLog.record({
       type: 'pool',
       kind: 'cleanup',
-      url: `自动清理（${rules.length} 条规则）`,
+      // 成功信息放标题（含删除数量），error 字段只放真实失败，避免前端误判为失败
+      url: `自动清理（${rules.length} 条规则）${stats.removed ? `：删除 ${stats.removed} 个节点` : ''}`,
       nodes: stats.checked,
       alive: 0,
-      error: stats.removed ? `删除 ${stats.removed} 个节点` : '',
+      error: '',
     });
   }
   return { ...stats, rules: rules.length };
