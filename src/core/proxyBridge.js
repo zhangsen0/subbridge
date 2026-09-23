@@ -24,6 +24,7 @@
 
 const http = require('http');
 const net = require('net');
+const { EventEmitter } = require('events');
 const tls = require('tls');
 const crypto = require('crypto');
 const { Duplex } = require('stream');
@@ -35,18 +36,30 @@ const WebSocket = require('ws');
 /* ------------------------------------------------------------------ */
 
 /** 把主机名与端口编码为代理协议通用目标地址头（ATYP + ADDR + PORT） */
-function buildAddrHead(host, port) {
+/** SOCKS5 / SS / Trojan 地址类型常量 */
+const SOCKS_ATYP = { ipv4: 0x01, domain: 0x03, ipv6: 0x04 };
+/** VLESS 地址类型常量（与 SOCKS5 不同：域名=0x02、IPv6=0x03） */
+const VLESS_ATYP = { ipv4: 0x01, domain: 0x02, ipv6: 0x03 };
+
+/**
+ * 构造地址头（ATYP + 地址 + 端口，端口在前由调用方拼装）
+ * @param {string} host 目标主机（IPv4 / IPv6 / 域名）
+ * @param {number} port 目标端口
+ * @param {string} [style] 地址类型风格：'socks'（SS/Trojan/SOCKS5，默认）或 'vless'
+ */
+function buildAddrHead(host, port, style) {
+  const atyp = (style || '').toLowerCase() === 'vless' ? VLESS_ATYP : SOCKS_ATYP;
   const p = Buffer.alloc(2);
   p.writeUInt16BE(port, 0);
   if (net.isIPv4(host)) {
     const b = Buffer.alloc(7);
-    b[0] = 0x01;
+    b[0] = atyp.ipv4;
     b.write(host.split('.').map((x) => String.fromCharCode(Number(x))).join(''), 1, 4, 'binary');
     return Buffer.concat([b.subarray(0, 5), p]);
   }
   if (net.isIPv6(host)) {
     const b = Buffer.alloc(1 + 16 + 2);
-    b[0] = 0x04;
+    b[0] = atyp.ipv6;
     // ipv6 解析为 16 字节
     const parts = host.split(':');
     let idx = 1;
@@ -60,32 +73,38 @@ function buildAddrHead(host, port) {
   }
   const hb = Buffer.from(host, 'utf8');
   const b = Buffer.alloc(1 + 1 + hb.length + 2);
-  b[0] = 0x03;
+  b[0] = atyp.domain;
   b[1] = hb.length;
   hb.copy(b, 2);
   b.writeUInt16BE(port, 2 + hb.length);
   return b;
 }
 
-/** 解析地址头：返回 host + port（供本地测试/回显用） */
-function parseAddrHead(buf, offset = 0) {
-  const atyp = buf[offset];
+/**
+ * 解析地址头：返回 host + port
+ * @param {Buffer} buf 地址头数据
+ * @param {number} offset 起始偏移
+ * @param {string} [style] 'socks'（默认）或 'vless'
+ */
+function parseAddrHead(buf, offset = 0, style) {
+  const atyp = (style || '').toLowerCase() === 'vless' ? VLESS_ATYP : SOCKS_ATYP;
+  const b = buf[offset];
   let host;
   let portOff;
-  if (atyp === 0x01) {
+  if (b === atyp.ipv4) {
     host = `${buf[offset + 1]}.${buf[offset + 2]}.${buf[offset + 3]}.${buf[offset + 4]}`;
     portOff = offset + 5;
-  } else if (atyp === 0x03) {
+  } else if (b === atyp.domain) {
     const len = buf[offset + 1];
     host = buf.subarray(offset + 2, offset + 2 + len).toString('utf8');
     portOff = offset + 2 + len;
-  } else if (atyp === 0x04) {
+  } else if (b === atyp.ipv6) {
     const chunks = [];
     for (let i = 0; i < 8; i++) chunks.push(buf.readUInt16BE(offset + 1 + i * 2).toString(16));
     host = chunks.join(':');
     portOff = offset + 17;
   } else {
-    throw new Error('不支持的地址类型: ' + atyp);
+    throw new Error('不支持的地址类型: ' + b);
   }
   return { host, port: buf.readUInt16BE(portOff) };
 }
@@ -159,8 +178,9 @@ function buildAeadNonce(seq) {
  * AEAD 加密隧道流：负责 chunk 化加解密。
  * 用法与 socket 类似（write / on('data') / end / destroy）。
  */
-class SSAeadStream {
+class SSAeadStream extends EventEmitter {
   constructor(socket, subkey, cipherName) {
+    super();
     this.socket = socket;
     this.subkey = subkey;
     this.cipherName = cipherName;
@@ -171,22 +191,38 @@ class SSAeadStream {
     this._bindRead();
   }
 
-  /** 写入明文（自动分块加密） */
+  /** 写入明文（自动分块加密，SIP022 AEAD：长度与载荷各自独立 AEAD 加密） */
   write(buf) {
     if (this.ended) return;
     const plain = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
     for (let off = 0; off < plain.length; off += 0x3fff) {
       const chunk = plain.subarray(off, off + 0x3fff);
-      const enc = this._encrypt(chunk, this.sendSeq++);
-      const head = Buffer.alloc(2);
-      head.writeUInt16BE(enc.length, 0);
-      this.socket.write(Buffer.concat([head, enc]));
+      this.socket.write(this._encryptChunk(chunk));
     }
   }
 
-  _encrypt(plain, seq) {
+  /** 加密单个 chunk：enc(length)|enc(payload)，各用独立递增 nonce */
+  _encryptChunk(plain) {
+    const lenBuf = Buffer.alloc(2);
+    lenBuf.writeUInt16BE(plain.length, 0);
+    const encLen = this._aeadEncrypt(lenBuf, this.sendSeq++);
+    const encPayload = this._aeadEncrypt(plain, this.sendSeq++);
+    return Buffer.concat([encLen, encPayload]);
+  }
+
+  _aeadEncrypt(plain, seq) {
     const c = crypto.createCipheriv(this.cipherName, this.subkey, buildAeadNonce(seq));
-    return Buffer.concat([c.update(plain), c.final()]);
+    // Node GCM：认证 tag 需 getAuthTag 单独获取并追加到密文尾部
+    return Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+  }
+
+  /** AEAD 解密：拆出尾部 16 字节 tag 后 setAuthTag 校验 */
+  _aeadDecrypt(enc, seq) {
+    const tag = enc.subarray(enc.length - 16);
+    const data = enc.subarray(0, enc.length - 16);
+    const d = crypto.createDecipheriv(this.cipherName, this.subkey, buildAeadNonce(seq));
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(data), d.final()]);
   }
 
   _bindRead() {
@@ -200,15 +236,22 @@ class SSAeadStream {
   }
 
   _drain() {
-    while (this.recvBuf.length >= 2) {
-      const len = this.recvBuf.readUInt16BE(0);
-      if (this.recvBuf.length < 2 + len) break;
-      const enc = this.recvBuf.subarray(2, 2 + len);
-      this.recvBuf = this.recvBuf.subarray(2 + len);
+    // SIP022 读方向：每 chunk = AEAD 密文长度(2B+16B tag) + AEAD 密文载荷(len+16B tag)
+    while (this.recvBuf.length >= 2 + 16) {
+      const encLen = this.recvBuf.subarray(0, 2 + 16);
+      let len;
+      try {
+        len = this._aeadDecrypt(encLen, this.recvSeq++).readUInt16BE(0);
+      } catch (err) {
+        if (this.emit) this.emit('error', new Error('AEAD 长度解密失败: ' + err.message));
+        return;
+      }
+      if (this.recvBuf.length < 2 + 16 + len + 16) break;
+      const encPayload = this.recvBuf.subarray(2 + 16, 2 + 16 + len + 16);
+      this.recvBuf = this.recvBuf.subarray(2 + 16 + len + 16);
       let plain;
       try {
-        const d = crypto.createDecipheriv(this.cipherName, this.subkey, buildAeadNonce(this.recvSeq++));
-        plain = Buffer.concat([d.update(enc), d.final()]);
+        plain = this._aeadDecrypt(encPayload, this.recvSeq++);
       } catch (err) {
         if (this.emit) this.emit('error', new Error('AEAD 解密失败: ' + err.message));
         return;
@@ -240,8 +283,9 @@ class SSAeadStream {
 }
 
 /** legacy 加密隧道流（CFB / rc4）：整流加解密，无需分块 */
-class SSLegacyStream {
+class SSLegacyStream extends EventEmitter {
   constructor(socket, cipherName, key) {
+    super();
     this.socket = socket;
     this.enc = crypto.createCipheriv(cipherName, key, crypto.randomBytes(16));
     this.recvBuf = Buffer.alloc(0);
@@ -355,7 +399,7 @@ function tlsConnect(opts, host, port) {
       host,
       port,
       servername: opts.sni || host,
-      rejectUnauthorized: false,
+      rejectUnauthorized: !opts.allowInsecure,
       ALPNProtocols: ['http/1.1'],
     });
     const timer = setTimeout(() => {
@@ -380,13 +424,18 @@ class TrojanClient {
     this.port = Number(opts.port);
     this.password = opts.password || opts.uuid || '';
     this.sni = opts.sni || '';
+    this.allowInsecure = !!opts.allowInsecure;
   }
 
   async connect(host, port) {
     const socket = await tlsConnect(this, this.server, this.port);
+    // trojan 协议：hex(SHA224(密码)) + CRLF + command(1=TCP) + SOCKS5 地址头 + CRLF
+    const passHash = crypto.createHash('sha224').update(this.password, 'utf8').digest('hex');
     const head = Buffer.concat([
-      Buffer.from(Buffer.from(this.password, 'utf8').toString('hex') + '\r\n', 'utf8'),
+      Buffer.from(passHash + '\r\n', 'utf8'),
+      Buffer.from([0x01]), // command：1=TCP
       buildAddrHead(host, port),
+      Buffer.from('\r\n', 'utf8'),
     ]);
     socket.write(head);
     return socket;
@@ -403,7 +452,7 @@ class TrojanClient {
 function buildVlessHead(uuid, host, port) {
   const uuidHex = uuid.replace(/-/g, '');
   if (!/^[0-9a-fA-F]{32}$/.test(uuidHex)) throw new Error('vless uuid 格式不正确: ' + uuid);
-  const addrHead = buildAddrHead(host, port);
+  const addrHead = buildAddrHead(host, port, 'vless');
   const uuidBuf = Buffer.from(uuidHex, 'hex');
   return Buffer.concat([
     Buffer.from([0x00]), // 版本 0
@@ -525,7 +574,7 @@ class VlessClient {
     }
     const socket = await tlsConnect(this, this.server, this.port);
     // TCP 模式同样有 1 字节响应头：先建双工流（注册 data 监听，避免首帧丢失）再写协议头
-    const duplex = socketToDuplex(socket, 1);
+    const duplex = socketToDuplex(socket, 2);
     socket.write(head);
     return duplex;
   }
@@ -551,7 +600,7 @@ class VlessClient {
       ws.once('open', () => {
         clearTimeout(timer);
         // 先建双工流（注册 message 监听）再发协议头，保证首帧（vless 响应头）不丢失
-        const duplex = wsToDuplex(ws, 1);
+        const duplex = wsToDuplex(ws, 2);
         try {
           ws.send(head, { binary: true });
         } catch (e) {
@@ -684,14 +733,17 @@ function buildConnectFn(node) {
     const client = new TrojanClient({
       server: node.server, port: node.port,
       password: node.password || node.uuid || '', sni: node.sni || '',
+      allowInsecure: !!node.allowInsecure,
     });
     return (host, port) => client.connect(host, port);
   }
   if (type === 'vless') {
+    // 传输类型兼容两种写法：node.network 显式指定，或 node.ws=true（旧格式）
+    const net = (node.network || '').toLowerCase() || (node.ws ? 'ws' : 'tcp');
     const client = new VlessClient({
       server: node.server, port: node.port,
       uuid: node.uuid || node.password || '', sni: node.sni || '',
-      network: node.network || 'tcp', wsPath: node.wsPath || '/',
+      network: net, wsPath: node.wsPath || '/',
       allowInsecure: !!node.allowInsecure,
     });
     return (host, port) => client.connect(host, port);
@@ -730,9 +782,13 @@ async function startBridge(node, opts = {}) {
     return { url: `${type}://${auth}${node.server}:${node.port}`, close: () => {} };
   }
   const key = `${type}|${node.server}|${node.port}|${node.uuid || ''}|${node.password || ''}|${node.sni || ''}|${node.method || ''}`;
+  const makeClose = (server) => () => {
+    try { server.close(); } catch (e) { /* ignore */ }
+    bridgeCache.delete(key);
+  };
   const hit = bridgeCache.get(key);
   if (hit && hit.expireAt > Date.now() && hit.server.listening) {
-    return { url: hit.url, close: () => {} };
+    return { url: hit.url, close: makeClose(hit.server) };
   }
   if (hit) {
     // 过期：关闭旧桥
@@ -743,7 +799,7 @@ async function startBridge(node, opts = {}) {
   if (!connectFn) return null;
   const { url, server } = await createLocalBridge(connectFn);
   bridgeCache.set(key, { url, server, expireAt: Date.now() + ttlMs });
-  return { url, close: () => {} };
+  return { url, close: makeClose(server) };
 }
 
 /** 关闭全部桥（测试 / 停机用） */
