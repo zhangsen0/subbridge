@@ -126,6 +126,12 @@ localnode:
   password: ""
   # 客户端可访问本机的地址（域名或公网 IP）；留空时依次尝试 CF 隧道域名、自动探测公网 IP
   public_address: ""
+  # 对外端口：PaaS 平台（Render/Waifly 等）容器内端口与外网端口不一致时，
+  # 用此端口注入订阅节点（如 443）；留空/0 则使用容器内监听端口
+  public_port: 0
+  # 对外是否 TLS：PaaS 平台 443 有平台 TLS 边缘（如 Render），填 true 时注入为
+  # HTTPS 代理节点（type=http + tls + sni=public_address），客户端经 443 加密隧道访问
+  public_tls: false
   # 是否自动探测公网 IP（需要本机可访问外网探测服务）
   auto_detect_public_ip: true
   # 公网 IP 探测服务地址

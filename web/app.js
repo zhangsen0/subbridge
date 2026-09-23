@@ -995,6 +995,8 @@ const LOCALNODE_FIELDS = [
   { key: 'localnode.username', label: '认证用户名', type: 'text', hint: '必填：避免成为开放代理。' },
   { key: 'localnode.password', label: '认证密码', type: 'text', hint: '必填：客户端连接时使用的密码。' },
   { key: 'localnode.public_address', label: '公网地址（域名/IP，留空自动探测）', type: 'text', hint: '有公网 IP 或域名时填写，会写进订阅节点地址。' },
+  { key: 'localnode.public_port', label: '对外端口（PaaS 填 80/443）', type: 'number', hint: '容器内端口与外网端口不一致时填对外端口（Render 等只开 80/443）；留空/0 用容器内监听端口。' },
+  { key: 'localnode.public_tls', label: '对外 TLS（PaaS 443 有 TLS 边缘时开）', type: 'bool', hint: 'Render 等平台 443 自带 TLS 证书，开启后注入为 HTTPS 代理节点（type=http + tls + sni），客户端走 443 加密隧道。' },
   { key: 'localnode.auto_detect_public_ip', label: '自动探测公网 IP', type: 'bool', hint: '无公网 IP 时留空自动探测（如 192.168.x.x 内网则探测不到公网）。' },
   { key: 'localnode.public_ip_detect_url', label: 'IP 探测地址', type: 'text', hint: '如 http://ip-api.com/json 等返回 IP 的接口。' },
   { key: 'localnode.ip_probe_timeout_ms', label: 'IP 探测超时（毫秒）', type: 'number', hint: '' },

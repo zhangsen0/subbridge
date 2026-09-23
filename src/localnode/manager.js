@@ -237,8 +237,12 @@ class LocalNodeManager {
     const viaTunnel = !!this.tunnel.publicAddress();
     const nodes = [];
 
-    // 端口复用模式：HTTP 代理对外端口 = 主 Web 服务端口；独立模式 = http_port
+    // 端口复用模式：HTTP 代理对外端口 = 主 Web 服务端口；独立模式 = http_port。
+    // PaaS 平台容器内端口与外网端口不一致时，优先用 public_port 作为对外端口
     const httpPort = this.isSharedMode() ? this.webPort() : Number(cfg.http_port);
+    const publicPort = Number(cfg.public_port) > 0 ? Number(cfg.public_port) : (viaTunnel ? 443 : httpPort);
+    // 对外 TLS：PaaS 平台 443 有平台 TLS 边缘（如 Render），注入为 HTTPS 代理节点
+    const publicTls = viaTunnel || cfg.public_tls === true || cfg.public_tls === 'true';
     const httpReady = this.isSharedMode() ? !!(this.shared && this.shared.attached) : this.servers.has('http');
     if (httpPort > 0 && (httpReady || viaTunnel)) {
       nodes.push(
@@ -246,11 +250,11 @@ class LocalNodeManager {
           name: cfg.http_node_name || '本机-HTTP',
           type: 'http',
           server: address,
-          port: viaTunnel ? 443 : httpPort,
+          port: publicPort,
           username: cfg.username || '',
           password: cfg.password || '',
-          tls: viaTunnel,
-          sni: viaTunnel ? address : '',
+          tls: publicTls,
+          sni: publicTls ? address : '',
           udp: false,
         }),
       );

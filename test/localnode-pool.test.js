@@ -112,3 +112,30 @@ test('drop_unreachable 过滤时本机节点（source=localnode）始终保留',
   assert.ok(filtered.some((n) => n.source === 'localnode'));
   assert.ok(!filtered.some((n) => n.server === '9.9.9.9'));
 });
+
+test('本机节点 shared 模式支持对外端口与对外 TLS（PaaS 场景）', async () => {
+  const { store } = tmpStore();
+  const pool = new NodePool(store);
+  // 模拟 manager.localNodes()：shared + public_port=443 + public_tls=true → HTTPS 代理节点
+  const httpNode = new NodeModel({
+    name: '本机-HTTP', type: 'http', server: 'subbridge.onrender.com', port: 443,
+    username: 'u', password: 'p', tls: true, sni: 'subbridge.onrender.com', udp: false,
+  });
+  const ln = fakeLocalnode([httpNode]);
+  const lns = await ln.localNodes();
+  assert.equal(lns.length, 1);
+  assert.equal(lns[0].port, 443);
+  assert.equal(lns[0].tls, true);
+  assert.equal(lns[0].sni, 'subbridge.onrender.com');
+  const { added } = await pool.upsert(lns, { source: 'localnode' });
+  assert.equal(added, 1);
+  // 对外端口改动后：旧节点（端口不一致）应被 sync 清理逻辑移除（key 由 type:server:port 组成）
+  const updatedNode = new NodeModel({
+    name: '本机-HTTP', type: 'http', server: 'subbridge.onrender.com', port: 80,
+    username: 'u', password: 'p', tls: false,
+  });
+  const listBefore = await pool.list();
+  const currentKeys = new Set([NodeModel.keyFor ? NodeModel.keyFor(updatedNode) : `${updatedNode.type}:${updatedNode.server}:${updatedNode.port}`]);
+  const staleKeys = listBefore.filter((n) => n.source === 'localnode' && !currentKeys.has(n.key)).map((n) => n.key);
+  assert.equal(staleKeys.length, 1);
+});
