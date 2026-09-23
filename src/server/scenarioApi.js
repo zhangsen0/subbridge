@@ -127,7 +127,8 @@ function registerScenarioApi(app, ctx) {
       subscription: {
         main_urls: parseUrls(body.main_urls || ''),
         extra_sources: parseUrls(body.extra_sources || ''),
-        merge_main_urls: true,
+        // 默认不合并主订阅源（仅入池，是否输出由节点池/规则决定），保持全站默认
+        merge_main_urls: false,
         include_pool: true,
         rules: Array.isArray(scenario.rules) ? scenario.rules : [],
       },
