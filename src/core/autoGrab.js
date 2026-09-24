@@ -105,8 +105,10 @@ class AutoGrab {
       if (this._running) return;
       const prev = previousCronMs(cronExpr);
       if (prev == null) return; // 非法表达式不触发
-      // 最近一次命中时刻已运行过则不重复触发（lastRunAt >= prev 说明本次已跑）
-      if (this._lastRunAt && new Date(this._lastRunAt).getTime() >= prev) return;
+      // 从未运行过：不立即补跑（避免重启/启动早期 sources 未加载完导致只采集部分源），
+      // 等首次 cron 到点再触发；已运行过则用上次运行时间与最近命中时刻比较，防重复触发
+      if (!this._lastRunAt) { this._scheduleNext(); return; }
+      if (new Date(this._lastRunAt).getTime() >= prev) return;
       await this.runNow();
       return;
     }
@@ -122,6 +124,10 @@ class AutoGrab {
     this._running = true;
     const cfg = this.ctx.config;
     const probe = !!(cfg.grab && cfg.grab.auto_probe);
+    // 等待订阅源加载完成（启动早期 sources 异步加载，避免只采集到部分源）
+    if (this.ctx.sources && typeof this.ctx.sources.ready === 'function') {
+      await this.ctx.sources.ready();
+    }
     const items = this.ctx.sources.list().filter((s) => s.enabled !== false && s.auto !== false);
     // 主订阅地址一并纳入自动采集（grab.include_main_urls 默认开）：主订阅节点也入池，
     // 与"输出不合并主订阅（merge_main_urls=false）"是两回事——入池后可被池规则选中输出
@@ -157,18 +163,53 @@ class AutoGrab {
           if (task) this.ctx.taskManager.progress(task.id, { done, ok: summary.ok, fail: summary.fail });
         }
       }
+      // 抓取后维护步骤（与无人值守步骤一一对应，全部可配置）：
+      // 1) remove：测速不可达节点自动删除（grab.auto_remove_unreachable）
+      // 2) cleanup：定期清理与质量门槛（pool.cleanup_enabled + pool.cleanup_rules）
+      let removed = 0, cleaned = 0;
+      if (cfg.grab && cfg.grab.auto_remove_unreachable && this.ctx.nodePool) {
+        try {
+          const { isNodeUsable } = require('./quality');
+          const poolCfg = cfg.pool || {};
+          const maxMs = Number(poolCfg.filter_max_latency_ms) > 0 ? Number(poolCfg.filter_max_latency_ms) : 1000;
+          const keepUnprobed = poolCfg.filter_keep_unprobed !== false;
+          const all = await this.ctx.nodePool.list();
+          const keys = all.filter((n) => !isNodeUsable(n, { maxLatencyMs: maxMs, keepUnprobed })).map((n) => `${n.type}:${n.server}:${n.port}`);
+          if (keys.length) removed = await this.ctx.nodePool.remove(keys);
+          if (removed > 0) {
+            this.ctx.fetchLog.record({ type: 'pool', kind: 'auto-remove', url: `无人值守自动删除不可用节点 ${removed} 个（检查 ${all.length}）`, error: '' });
+          }
+        } catch (err) {
+          summary.errors.push(`自动删除不可用失败：${String(err.message || err).slice(0, 120)}`);
+        }
+      }
+      if (cfg.pool && cfg.pool.cleanup_enabled && this.ctx.nodePool) {
+        try {
+          const { applyCleanup } = require('./cleanup');
+          const rules = Array.isArray(cfg.pool.cleanup_rules) ? cfg.pool.cleanup_rules : [];
+          const c = await applyCleanup(this.ctx.nodePool, rules);
+          cleaned = c.removed;
+          if (cleaned > 0) {
+            this.ctx.fetchLog.record({ type: 'pool', kind: 'auto-cleanup', url: `无人值守定期清理删除 ${cleaned} 个（检查 ${c.checked}）`, error: '' });
+          }
+        } catch (err) {
+          summary.errors.push(`定期清理失败：${String(err.message || err).slice(0, 120)}`);
+        }
+      }
+      summary.removed = removed;
+      summary.cleaned = cleaned;
       summary.durationMs = Date.now() - started;
       summary.finishedAt = new Date().toISOString();
       this._lastRunAt = summary.finishedAt;
       this._lastSummary = summary;
       this._scheduleNext();
       this.ctx.fetchLog.record({
-        type: 'grab', kind: 'auto', url: `自动采集完成（源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail}）`,
+        type: 'grab', kind: 'auto', url: `自动采集完成（源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail} / 删除 ${removed} / 清理 ${cleaned}）`,
         nodes: summary.parsed, error: summary.fail ? summary.errors.slice(0, 2).join('；') : '',
       });
       if (task) this.ctx.taskManager.finish(task.id, {
         ok: summary.ok, fail: summary.fail,
-        summary: `源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail} / 解析节点 ${summary.parsed}`,
+        summary: `源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail} / 解析节点 ${summary.parsed} / 删除不可用 ${removed} / 清理 ${cleaned}`,
       });
       return summary;
     } finally {

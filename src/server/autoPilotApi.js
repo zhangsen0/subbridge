@@ -43,11 +43,26 @@ function stepState(cfg) {
   });
 }
 
-/** 查询无人值守状态（含 autoGrab 运行信息） */
+/** 查询无人值守状态（含 autoGrab 运行信息与当前任务实时进度） */
 function queryState(ctx) {
   const cfg = getConfig();
   const steps = stepState(cfg);
   const enabled = steps.some((s) => s.applied);
+  // 实时进度：正在运行的自动采集任务（done/total/ok/fail），供前台进度行展示
+  let currentTask = null;
+  if (ctx.taskManager) {
+    const running = ctx.taskManager.list().find((t) => t.type === 'auto-grab' && t.status === 'running');
+    if (running) {
+      currentTask = {
+        id: running.id,
+        done: running.done,
+        total: running.total,
+        ok: running.ok,
+        fail: running.fail,
+        started_at: running.startedAt,
+      };
+    }
+  }
   return {
     ok: true,
     enabled,
@@ -60,6 +75,7 @@ function queryState(ctx) {
     last_run_at: ctx.autoGrab ? ctx.autoGrab.lastRunAt() : '',
     next_run_at: ctx.autoGrab ? ctx.autoGrab.nextRunAt() : '',
     last_summary: ctx.autoGrab ? ctx.autoGrab.lastRunSummary() : null,
+    current_task: currentTask,
   };
 }
 

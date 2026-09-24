@@ -11,6 +11,21 @@ function get(path, token) {
     }).on('error', (e) => resolve({ status: 0, body: e.message }));
   });
 }
+function post(path, body, token) {
+  return new Promise((resolve) => {
+    const data = body ? JSON.stringify(body) : null;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['X-API-Token'] = token;
+    const r = http.request({ host: '127.0.0.1', port: 18081, path, method: 'POST', headers }, (res) => {
+      let d = '';
+      res.on('data', (c) => (d += c));
+      res.on('end', () => resolve({ status: res.statusCode, body: d }));
+    });
+    r.on('error', (e) => resolve({ status: 0, body: e.message }));
+    if (data) r.write(data);
+    r.end();
+  });
+}
 (async () => {
   // 1. 页面结构
   const page = await get('/');
@@ -25,8 +40,8 @@ function get(path, token) {
     ['含内置模板选择器(cleanup)', page.body.includes('cleanup-preset')],
   ];
   checks.forEach(([n, ok]) => console.log((ok ? 'PASS' : 'FAIL') + ' ' + n));
-  // 2. 登录接口
-  const login = await get('/api/login', '');
+  // 2. 登录接口（无令牌应 401；GET 不存在，用 POST）
+  const login = await post('/api/login', { username: 'admin', password: 'adminpass' }, '');
   console.log('登录接口(无令牌应401):', login.status);
   // 3. 预置模板接口
   const presets = await get('/api/presets', 'admin-token');

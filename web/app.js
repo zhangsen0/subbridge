@@ -775,6 +775,22 @@ async function loadAutoPilot() {
     $('ap-next').textContent = d.next_run_at ? new Date(d.next_run_at).toLocaleString() : (d.cron ? '已按 cron 调度' : '未开启');
     $('ap-last').textContent = d.last_run_at ? new Date(d.last_run_at).toLocaleString() : '从未';
     $('ap-nextrun').textContent = d.next_run_at ? new Date(d.next_run_at).toLocaleString() : '-';
+    // 无人值守进度行：优先展示正在运行的任务实时进度，否则展示上次运行摘要
+    const prog = $('ap-progress');
+    if (prog) {
+      const t = d.current_task;
+      if (t) {
+        prog.textContent = `无人值守进度：正在采集 源 ${t.done}/${t.total} · 成功 ${t.ok} · 失败 ${t.fail}（进行中）`;
+        prog.className = 'hint ap-progress running';
+      } else if (d.last_summary) {
+        const s = d.last_summary;
+        prog.textContent = `无人值守进度：上次完成 源 ${s.sources || 0} · 成功 ${s.ok || 0} · 失败 ${s.fail || 0} · 解析 ${s.parsed || 0} 节点 · 新增/更新 ${(s.added || 0) + (s.updated || 0)}`;
+        prog.className = 'hint ap-progress';
+      } else {
+        prog.textContent = '无人值守进度：暂无运行记录';
+        prog.className = 'hint ap-progress';
+      }
+    }
     $('btn-ap-stop').classList.toggle('hidden', !d.enabled);
   } catch (err) {
     /* 无人值守卡加载失败：未登录/接口异常时明确提示，避免误读为"未开启" */
@@ -783,6 +799,7 @@ async function loadAutoPilot() {
     const cells = document.querySelectorAll('.ap-step .ap-state');
     cells.forEach((c) => { c.textContent = '未登录'; c.className = 'ap-state'; });
     const nxt = $('ap-next'); if (nxt) nxt.textContent = '登录后查看';
+    const prog = $('ap-progress'); if (prog) { prog.textContent = '无人值守进度：登录后查看'; prog.className = 'hint ap-progress'; }
   }
 }
 function setApStep(id, applied) {

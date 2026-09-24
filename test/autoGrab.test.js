@@ -28,23 +28,26 @@ function makeAutoGrab(lastRunAt = '') {
   return ag;
 }
 
-test('_tick：从未运行过时 cron 模式触发一次', async () => {
+test('_tick：从未运行过时 cron 模式不立即触发（等首次到点，避免启动早期源未加载）', async () => {
   const ag = makeAutoGrab();
   await ag._tick();
-  assert.ok(ag.lastRunAt(), '首次触发后应有运行时间');
+  assert.equal(ag.lastRunAt(), '', '从未运行不应立即触发');
+  assert.equal(ag._running, false);
 });
 
-test('_tick：本次 cron 命中时刻已运行过则不再触发', async () => {
+test('_tick：本次 cron 命中时刻已运行过则不再触发；到点后触发一次', async () => {
   const ag = makeAutoGrab();
+  // 模拟已运行：把 lastRunAt 设为上一个命中周期之前（早于 prev），tick 应触发
+  const cfg = ag.ctx.config;
+  const prev = previousCronMs(cfg.grab.auto_cron, new Date());
+  ag._lastRunAt = new Date(prev - 60 * 1000).toISOString();
   await ag._tick();
+  assert.ok(ag.lastRunAt(), '到点后应触发');
   const first = ag.lastRunAt();
-  assert.ok(first);
-  const runs = ag.lastRunAt();
   // 同一 cron 命中周期内再次 tick（lastRunAt 晚于 prev）不重复触发
   await ag._tick();
-  assert.equal(ag.lastRunAt(), runs);
-  assert.equal(ag._running, false);
   assert.equal(ag.lastRunAt(), first);
+  assert.equal(ag._running, false);
 });
 
 test('_tick：非法 cron 表达式不触发也不报错', async () => {

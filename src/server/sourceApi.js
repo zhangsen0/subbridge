@@ -332,15 +332,18 @@ function registerSourceApi(app, ctx) {
     };
   });
 
-  // 立即触发一次自动采集（手动补采）
+  // 立即触发一次自动采集（手动补采，异步后台执行：立即返回，进度在后台任务/无人值守进度行可见）
   app.post('/api/auto-grab', async (req, reply) => {
     if (!ctx.autoGrab) return reply.code(500).send({ error: '自动采集模块未就绪' });
-    try {
-      const summary = await ctx.autoGrab.runNow();
-      return { ok: true, summary };
-    } catch (err) {
-      return reply.code(500).send({ error: err.message });
-    }
+    if (ctx.autoGrab.running()) return reply.code(409).send({ error: '已有自动采集运行中，请等待完成后再触发' });
+    const p = ctx.autoGrab.runNow();
+    // 异步执行：不阻塞请求；异常记入事件日志，避免 unhandled rejection
+    p.catch((err) => {
+      try {
+        ctx.fetchLog.record({ type: 'grab', kind: 'auto', url: `自动采集异常：${String(err.message || err).slice(0, 200)}`, error: String(err.message || err).slice(0, 200) });
+      } catch { /* 日志失败不影响主流程 */ }
+    });
+    return { ok: true, async: true, message: '自动采集已后台启动，可在「后台任务」或「无人值守进度」查看实时进度' };
   });
 }
 
