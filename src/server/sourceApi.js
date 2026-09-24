@@ -267,12 +267,13 @@ function registerSourceApi(app, ctx) {
         const fail = results.filter((r) => r && !r.ok).length;
         ctx.taskManager.progress(task.id, { done, ok, fail });
       };
-      // 每源代理分配：轮询预选代理；预选为空时尝试现场重选（一次）
-      const reselectOnce = (() => {
-        let done = false;
+      // 每源代理分配：轮询预选代理；预选代理失败时现场重选（最多 grab.reselect_max_rounds 轮，默认 2 轮）
+      const reselectRounds = Math.max(1, Number((ctx.config.grab || {}).reselect_max_rounds) || 2);
+      const reselect = (() => {
+        let rounds = reselectRounds;
         return async () => {
-          if (done) return [];
-          done = true;
+          if (rounds <= 0) return [];
+          rounds -= 1;
           return preSelectProxies();
         };
       })();
@@ -283,18 +284,18 @@ function registerSourceApi(app, ctx) {
           try {
             let proxies = preProxies.length ? [preProxies[i % preProxies.length]] : [];
             results[i] = await grabOne(item, { probe, proxyUrls: proxies });
-            // 预选代理抓取失败：换其他预选代理重试；全失败再现场重选一次
+            // 预选代理抓取失败：换其他预选代理重试
             if (!results[i].ok && preProxies.length > 1) {
               const others = preProxies.filter((_, k) => k !== (i % preProxies.length));
               const retry = await grabOne(item, { probe, proxyUrls: others });
               if (retry.ok) results[i] = retry;
             }
-            if (!results[i].ok) {
-              const reselected = await reselectOnce();
-              if (reselected.length) {
-                const again = await grabOne(item, { probe, proxyUrls: reselected });
-                if (again.ok) results[i] = again;
-              }
+            // 预选代理全失败：现场重选代理（多轮），提高命中可用代理概率
+            for (let round = 0; !results[i].ok && round < reselectRounds; round += 1) {
+              const reselected = await reselect();
+              if (!reselected.length) break;
+              const again = await grabOne(item, { probe, proxyUrls: reselected });
+              if (again.ok) { results[i] = again; break; }
             }
           } catch (err) {
             results[i] = { id: item.id, url: item.url, ok: false, error: err.message };
