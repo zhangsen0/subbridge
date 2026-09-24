@@ -238,6 +238,9 @@ subscription:
   include_pool: true
   # 订阅输出只保留可用节点（未测/不可达不输出，保证客户端拉取的节点真实可用）
   only_alive: true
+  # 主订阅来源节点是否对外输出（默认 false=不输出：主订阅是私人/核心订阅，仅作池代理与内部管理；
+  # true=主订阅节点随 /sub 输出，与其余池节点一起参与选取规则）
+  main_nodes_in_output: false
   # /sub 默认目标格式
   default_target: "clash"
   # /sub 默认是否启用可用性检测（可通过 probe=1/0 覆盖）

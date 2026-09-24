@@ -90,7 +90,8 @@ async function handleSubscribe(req, reply, ctx) {
   const cacheSeconds = Number(subCfg.cache_seconds) || 0;
   // 缓存键必须包含影响输出的全部请求参数（rules 等），否则带规则的请求会命中错误缓存
   const rulesHash = rules.length ? hashOf(JSON.stringify(rules)) : '';
-  const cacheKey = `subscription:${target}:${probeCompat}:${mergeMain}:${includePool}:${poolVersion}:${rulesHash}:${hashOf(urls.join(','))}`;
+  const mainInOutput = subCfg.main_nodes_in_output === true ? '1' : '0';
+  const cacheKey = `subscription:${target}:${probeCompat}:${mergeMain}:${includePool}:${mainInOutput}:${poolVersion}:${rulesHash}:${hashOf(urls.join(','))}`;
   if (cacheSeconds > 0) {
     const hit = ctx.store.cacheGet(cacheKey);
     if (hit) {
@@ -186,6 +187,20 @@ async function handleSubscribe(req, reply, ctx) {
     // 必须【先】剔除不可用节点【再】应用选取规则，否则 sort+limit 会把可用节点切出列表
     if ((config.subscription || {}).only_alive !== false) {
       extraNodes = extraNodes.filter((n) => n.probe && n.probe.alive);
+    }
+    // 主订阅来源节点默认不对外输出（subscription.main_nodes_in_output 配置，默认 false）：
+    // 主订阅是私人/核心订阅，仅作为节点池代理与内部管理使用，不随 /sub 分发给外部拉取者；
+    // 需要对外输出时可在全站参数开启 main_nodes_in_output
+    if (subCfg.main_nodes_in_output !== true && mainUrls.length) {
+      const mainHosts = mainUrls.map((u) => {
+        try { return new URL(u).hostname; } catch { return null; }
+      }).filter(Boolean);
+      if (mainHosts.length) {
+        const before = extraNodes.length;
+        extraNodes = extraNodes.filter((n) => !mainHosts.some((h) => String(n.source || '').includes(h)));
+        const excluded = before - extraNodes.length;
+        if (excluded > 0) warnings.push(`主订阅节点不对外输出（已排除 ${excluded} 个，可在全站参数开启 subscription.main_nodes_in_output 输出）`);
+      }
     }
     if (rules.length) {
       const { applyRules } = require('../core/rules');

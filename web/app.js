@@ -1658,6 +1658,7 @@ const CONFIG_FIELDS = [
   { group: '转换', key: 'converter.singbox.unique_tags', label: 'sing-box 重名节点唯一化', type: 'bool', hint: '节点同名时自动追加序号（sing-box 要求 tag 唯一）。' },
   { group: '订阅源', key: 'subscription.main_urls', label: '主订阅地址（每行一个）', type: 'list', hint: '/sub 自动合并这些地址；外部无法看到上游地址。支持多个。' },
   { group: '订阅源', key: 'subscription.extra_sources', label: '其他订阅链接（每行：名称|URL）', type: 'list', hint: '自动拉取入池补充节点库；是否输出由节点池/规则决定。' },
+  { group: '订阅源', key: 'subscription.main_nodes_in_output', label: '主订阅节点对外输出', type: 'bool', hint: '默认关闭：主订阅是私人/核心订阅，仅作池代理与内部管理，不随 /sub 分发给外部拉取者；开启后主订阅节点参与输出。' },
   { group: '订阅源', key: 'subscription.merge_main_urls', label: '主订阅结果直接并入输出', type: 'bool', hint: '关闭时主订阅仅作为节点池来源，不直接输出。' },
   { group: '订阅源', key: 'subscription.async_refresh', label: '/sub 异步刷新主订阅池', type: 'bool', hint: '拉取订阅时立即用当前节点池响应，后台异步抓主订阅入池（防止慢源/被墙源导致客户端超时）。关闭则同步等待抓取完成。' },
   { group: '订阅源', key: 'subscription.include_pool', label: '输出包含节点池', type: 'bool', hint: '关闭则 /sub 不并入节点池累积节点。' },
