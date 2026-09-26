@@ -325,8 +325,14 @@ grab:
   auto_remove_unreachable: false
 
 fetch_log:
-  # 抓取日志最大保留条数（内存环形缓冲，超出自动丢弃最旧）
+  # 事件日志最大保留条数（环形缓冲，超出自动丢弃最旧）
   capacity: 500
+  # 是否持久化事件日志（默认开启）：经存储层落盘，重启后仍可查到历史抓取轨迹；关闭则退化为纯内存
+  persist: true
+  # 持久化文件名（存于存储层；sqlite 驱动落在 data/subbridge.sqlite 的 kv 表，无独立文件）
+  file: "fetch-log.json"
+  # 落盘节流间隔（毫秒）：多条日志合并成一次写入，避免高频写拖慢抓取主流程
+  flush_interval_ms: 2000
 
 logging:
   # trace / debug / info / warn / error

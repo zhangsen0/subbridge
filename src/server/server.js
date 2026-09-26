@@ -80,7 +80,13 @@ function createServer(config) {
   ctx.localnode = localnode;
 
   // 抓取日志（内存环形缓冲，容量可配置）与节点池（持久化，自动补充/更新、不自动删除）
-  ctx.fetchLog = new FetchLog((config.fetch_log || {}).capacity);
+  // 事件日志：容量可配，默认持久化到存储层（重启后仍可查到历史抓取轨迹）
+  ctx.fetchLog = new FetchLog((config.fetch_log || {}).capacity, {
+    store: ctx.store,
+    file: (config.fetch_log || {}).file,
+    persist: (config.fetch_log || {}).persist !== false,
+    flushIntervalMs: (config.fetch_log || {}).flush_interval_ms,
+  });
 
   // 后台任务管理器：统一登记/跟踪抓取、测速、自动采集等异步任务实时进度
   const { TaskManager } = require('../core/taskManager');
@@ -162,8 +168,9 @@ function createServer(config) {
   ctx.autoGrab = new AutoGrab(ctx);
   ctx.autoGrab.start();
 
-  // 优雅退出时关闭本地代理与隧道
+  // 优雅退出：先落盘事件日志，再关闭本地代理与隧道
   app.addHook('onClose', async () => {
+    await ctx.fetchLog.flush().catch(() => {});
     localnode.stop();
   });
 
