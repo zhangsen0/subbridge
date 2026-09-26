@@ -160,10 +160,11 @@ class AutoGrab {
    */
   async _tick() {
     const cfg = this.ctx.config;
+    // 先刷新"下次运行时间"展示值：任务运行中也要保持最新（避免 cron 改了、页面还显示旧时间）
+    this._scheduleNext();
     const cronExpr = cfg.grab && cfg.grab.auto_cron ? String(cfg.grab.auto_cron).trim() : '';
     if (cronExpr) {
       if (this._running) return;
-      this._scheduleNext();
       const prev = previousCronMs(cronExpr);
       if (prev == null) return; // 非法表达式不触发
       // 同一命中时刻已处理过（含历史槽位登记）：直接返回
