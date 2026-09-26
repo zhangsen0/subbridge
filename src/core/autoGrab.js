@@ -114,6 +114,9 @@ class AutoGrab {
       const last = parsed && parsed.lastRunAt ? new Date(parsed.lastRunAt).getTime() : 0;
       // 忽略非法/未来时间（异常时钟或手工改写）
       if (last > 0 && last <= Date.now()) this._lastRunAt = new Date(last).toISOString();
+      // 上次运行摘要一并恢复：重启后页面仍能展示"上次完成 源/成功/失败/解析"明细
+      const summary = parsed && parsed.lastSummary;
+      if (summary && typeof summary === 'object' && !Array.isArray(summary)) this._lastSummary = summary;
     } catch {
       // 状态文件缺失或损坏不影响运行
     }
@@ -123,7 +126,11 @@ class AutoGrab {
   _persistState() {
     const store = this.ctx.store;
     if (!store || typeof store.writeDataFile !== 'function') return;
-    const payload = JSON.stringify({ lastRunAt: this._lastRunAt, updatedAt: new Date().toISOString() });
+    const payload = JSON.stringify({
+      lastRunAt: this._lastRunAt,
+      lastSummary: this._lastSummary,
+      updatedAt: new Date().toISOString(),
+    });
     Promise.resolve(store.writeDataFile(this._stateFileName(), payload)).catch(() => {});
   }
 

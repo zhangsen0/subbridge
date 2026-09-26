@@ -121,6 +121,18 @@ test('上次运行时间持久化到存储并可跨重启恢复', async () => {
   assert.equal(ag2.lastRunAt(), runAt);
 });
 
+test('上次运行摘要随状态一起持久化，重启后可恢复明细', async () => {
+  const store = makeStore();
+  const ag = makeAutoGrab({ store, bootAt: 0 });
+  await ag._tick();
+  await flush();
+  const ag2 = makeAutoGrab({ store });
+  await ag2._restoreState();
+  assert.ok(ag2.lastRunSummary(), '应恢复上次运行摘要');
+  assert.equal(ag2.lastRunSummary().sources, 0);
+  assert.ok(ag2.lastRunSummary().finishedAt);
+});
+
 test('auto_state_file：可自定义持久化文件名', async () => {
   const store = makeStore();
   const ag = makeAutoGrab({ store, bootAt: 0, stateFile: 'my-state.json' });
