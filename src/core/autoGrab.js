@@ -3,14 +3,20 @@
 /**
  * 自动采集调度：按配置间隔定时抓取全部启用来源（可配置，禁止写死）
  *
- *   grab.auto_interval_minutes  采集间隔（分钟），0=关闭
- *   grab.auto_probe             采集后是否测速（true=抓取并测速）
- *   grab.auto_max_concurrency   采集并发上限（当前按顺序执行，预留扩展）
+ *   grab.auto_cron                 采集 cron 表达式（优先于间隔）
+ *   grab.auto_state_file           上次运行时间持久化文件（留空则用默认文件名）
+ *   grab.auto_catch_up_on_startup  启动时是否补跑"服务停止期间错过"的 cron 命中（默认 false）
+ *   grab.auto_interval_minutes     采集间隔（分钟），0=关闭
+ *   grab.auto_probe                采集后是否测速（true=抓取并测速）
+ *   grab.auto_max_concurrency      采集并发上限（当前按顺序执行，预留扩展）
  *
- * 状态通过 /api/auto-grab 暴露；每次运行结果记入事件日志并回写各源 lastStatus。
+ * 状态通过 /api/auto-pilot 与 /api/auto-grab 暴露；每次运行结果记入事件日志并回写各源 lastStatus。
+ * 触发判定以 cron 命中时刻（槽位）为粒度：每个命中时刻最多执行一次，进程重启后由持久化状态恢复
+ * "上次执行时间"，页面不再因重启丢失"上一次执行时间"。
  */
 
 const CHECK_INTERVAL_MS = 30 * 1000; // 每 30 秒检查一次是否到点
+const DEFAULT_STATE_FILE = 'auto-grab-state.json'; // 上次运行时间持久化文件（grab.auto_state_file 可覆盖）
 const cronParser = require('cron-parser');
 
 /**
@@ -59,6 +65,10 @@ class AutoGrab {
     this._lastRunAt = '';
     this._lastSummary = null;
     this._nextAt = '';
+    // 当前进程启动时刻：用于区分"启动后到点的 cron 命中"与"启动前的历史命中"
+    this._bootAt = Date.now();
+    // 已处理过的 cron 命中时刻（毫秒），同一命中时刻只触发一次，避免重复执行
+    this._lastSlotAt = 0;
   }
 
   /** 当前是否运行中 */
@@ -83,12 +93,52 @@ class AutoGrab {
     this._nextAt = new Date(next).toISOString();
   }
 
+  /** 上次运行时间持久化文件名（grab.auto_state_file 可配置；留空用默认文件名） */
+  _stateFileName() {
+    const grab = this.ctx.config && this.ctx.config.grab ? this.ctx.config.grab : {};
+    const raw = grab.auto_state_file != null ? String(grab.auto_state_file).trim() : '';
+    return raw || DEFAULT_STATE_FILE;
+  }
+
+  /**
+   * 从存储恢复上次运行时间：解决"服务重启后上一次执行时间丢失"的问题，
+   * 恢复值同时用于 cron 补跑判定（避免服务停机期间错过的周期在重启后被重复补跑）。
+   */
+  async _restoreState() {
+    const store = this.ctx.store;
+    if (!store || typeof store.readDataFile !== 'function') return;
+    try {
+      const raw = await store.readDataFile(this._stateFileName());
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      const last = parsed && parsed.lastRunAt ? new Date(parsed.lastRunAt).getTime() : 0;
+      // 忽略非法/未来时间（异常时钟或手工改写）
+      if (last > 0 && last <= Date.now()) this._lastRunAt = new Date(last).toISOString();
+    } catch {
+      // 状态文件缺失或损坏不影响运行
+    }
+  }
+
+  /** 持久化上次运行时间（异步写入，失败不影响主流程） */
+  _persistState() {
+    const store = this.ctx.store;
+    if (!store || typeof store.writeDataFile !== 'function') return;
+    const payload = JSON.stringify({ lastRunAt: this._lastRunAt, updatedAt: new Date().toISOString() });
+    Promise.resolve(store.writeDataFile(this._stateFileName(), payload)).catch(() => {});
+  }
+
   /** 启动定时检查（幂等，可重复调用） */
   start() {
     if (this._timer) return;
-    this._scheduleNext();
+    // 先恢复上次运行时间再注册周期检查：避免恢复前被误判为"从未运行"而错过/误导补跑判定
+    this._restoreState()
+      .catch(() => {})
+      .then(() => {
+        this._scheduleNext();
+        return this._tick();
+      })
+      .catch(() => {});
     this._timer = setInterval(() => { this._tick().catch(() => {}); }, CHECK_INTERVAL_MS);
-    this._tick().catch(() => {});
     if (this._timer.unref) this._timer.unref();
   }
 
@@ -97,19 +147,35 @@ class AutoGrab {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
   }
 
-  /** 周期检查：到点且未运行则触发 */
+  /**
+   * 周期检查：到点且未运行则触发
+   *
+   * cron 判定以"命中时刻（槽位）"为粒度：
+   *   1. 每个 cron 命中时刻最多执行一次（_lastSlotAt 去重）
+   *   2. 进程启动前到点的历史槽位只登记、不执行（避免重启瞬间补跑 / 源尚未加载完成）
+   *   3. 同一命中时刻已运行过（自动或手动）不再重复执行
+   * 注意：原实现要求 _lastRunAt 非空才可能触发（"从未运行就不补跑"），导致从未手动执行过
+   * 以及每次重启后的服务再也不会自动采集——本次修复保留"不补跑历史槽位"的语义，
+   * 但不再依赖 _lastRunAt 作为触发前提，到点的槽位必定执行。
+   */
   async _tick() {
     const cfg = this.ctx.config;
     const cronExpr = cfg.grab && cfg.grab.auto_cron ? String(cfg.grab.auto_cron).trim() : '';
     if (cronExpr) {
       if (this._running) return;
+      this._scheduleNext();
       const prev = previousCronMs(cronExpr);
       if (prev == null) return; // 非法表达式不触发
-      // 从未运行过：不立即补跑（避免重启/启动早期 sources 未加载完导致只采集部分源），
-      // 等首次 cron 到点再触发；已运行过则用上次运行时间与最近命中时刻比较，防重复触发
-      if (!this._lastRunAt) { this._scheduleNext(); return; }
-      if (new Date(this._lastRunAt).getTime() >= prev) return;
+      // 同一命中时刻已处理过（含历史槽位登记）：直接返回
+      if (this._lastSlotAt === prev) return;
+      // 历史槽位（到点时刻早于本进程启动）：默认只登记不执行，等下一个真正到点的槽位；
+      // 配置 grab.auto_catch_up_on_startup=true 时，若上次运行早于该槽位则补跑一次
+      const catchUp = !!(cfg.grab && cfg.grab.auto_catch_up_on_startup);
+      if (prev < this._bootAt && !catchUp) { this._lastSlotAt = prev; return; }
+      // 已运行过且运行时间不早于该命中时刻：本次命中已满足，不重复执行
+      if (this._lastRunAt && new Date(this._lastRunAt).getTime() >= prev) { this._lastSlotAt = prev; return; }
       await this.runNow();
+      this._lastSlotAt = prev;
       return;
     }
     const intervalMin = Math.max(0, Number(cfg.grab && cfg.grab.auto_interval_minutes) || 0);
@@ -202,6 +268,7 @@ class AutoGrab {
       summary.finishedAt = new Date().toISOString();
       this._lastRunAt = summary.finishedAt;
       this._lastSummary = summary;
+      this._persistState();
       this._scheduleNext();
       this.ctx.fetchLog.record({
         type: 'grab', kind: 'auto', url: `自动采集完成（源 ${summary.sources} 个 / 成功 ${summary.ok} / 失败 ${summary.fail} / 删除 ${removed} / 清理 ${cleaned}）`,

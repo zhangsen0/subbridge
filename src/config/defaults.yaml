@@ -314,6 +314,11 @@ grab:
   auto_interval_minutes: 0
   # 自动采集 cron 表达式（优先级高于间隔），如 "0 0 * * *"=每天 00:00；留空则用 auto_interval_minutes
   auto_cron: ""
+  # 上次自动采集运行时间的持久化文件（存于数据目录），重启后仍能看到"上一次执行时间"
+  # 并据此避免重复补跑；留空则用默认文件名 auto-grab-state.json
+  auto_state_file: "auto-grab-state.json"
+  # 启动时是否补跑"服务停止期间错过"的 cron 命中（true=重启后立即补执行一次；false=等下一次到点）
+  auto_catch_up_on_startup: false
   # 抓取（手动/自动/采集）完成后是否自动对本次入库节点测速
   auto_probe: false
   # auto_probe 开启时，测速后是否自动删除"已测且不可用"的节点（默认关闭=保留全部）
