@@ -122,3 +122,28 @@ test('管道：重命名', () => {
 test('管道：非法正则抛出明确错误', () => {
   assert.throws(() => pipeline.filterNodes(makeNodes(), { include: '[' }), /无效的正则/);
 });
+
+test('Clash：模板被误存为空内容时回退内置模板，输出不为空', async () => {
+  const overridePath = `${ctx.store.root}/templates/clash.tmpl.yaml`;
+  await ctx.store.writeTemplate('clash.tmpl.yaml', '');
+  try {
+    const out = await clashConverter.convert(makeNodes(), {}, ctx);
+    const parsed = yaml.load(out);
+    assert.ok(out.trim().length > 0, '不应输出空字符串');
+    assert.ok(parsed.proxies.length >= 2, '内置模板应渲染出节点列表');
+    assert.ok(parsed['proxy-groups'].length >= 2, '内置模板应渲染出策略组');
+  } finally {
+    await require('node:fs/promises').rm(overridePath, { force: true });
+  }
+});
+
+test('Clash：规则模板为空时按“无规则”处理且不报错', async () => {
+  const overridePath = `${ctx.store.root}/templates/rules.tmpl.txt`;
+  await ctx.store.writeTemplate('rules.tmpl.txt', '');
+  try {
+    const out = await clashConverter.convert(makeNodes(), {}, ctx);
+    assert.ok(out.includes('proxies:'));
+  } finally {
+    await require('node:fs/promises').rm(overridePath, { force: true });
+  }
+});

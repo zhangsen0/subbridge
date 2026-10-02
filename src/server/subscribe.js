@@ -216,6 +216,12 @@ async function handleSubscribe(req, reply, ctx) {
     result.warnings = [...warnings, ...result.warnings];
   }
 
+  // 输出为空时给出明确告警：避免客户端只拿到空配置却无从定位（三要素：可用节点 / 选取规则 / 模板）
+  if (!result.output || !String(result.output).trim()) {
+    const emptyWarn = '订阅输出为空：请依次检查「节点池可用且已测速节点数量 → subscription.rules 选取规则 → 模板文件是否为空」';
+    result.warnings = [...(result.warnings || []), emptyWarn];
+  }
+
   if (cacheSeconds > 0) {
     ctx.store.cacheSet(cacheKey, { output: result.output, warnings: result.warnings }, cacheSeconds);
   }

@@ -34,10 +34,21 @@ function indentBlock(text, spaces) {
     .join('\n');
 }
 
-/** 读取模板文件：经存储层读运行时覆盖版本，其次内置 templates/ */
-async function readTemplateFile(name, ctx) {
+/**
+ * 读取模板文件：经存储层读运行时覆盖版本，其次内置 templates/
+ *
+ * 覆盖版本**非空**才采用：前台误保存空模板（如清空内容后点保存）会导致渲染结果为
+ * 空字符串、订阅输出静默为空且无任何报错，属于典型的静默失败，此处回退内置模板兜底。
+ * 规则模板例外（rules.tmpl.txt 空内容表示"不需要任何规则"，是合法意图），用 allowEmpty 放行。
+ * @param {string} name 模板文件名
+ * @param {object} ctx 运行上下文
+ * @param {{allowEmpty?: boolean}} [options] allowEmpty=true 时允许采用空覆盖内容
+ * @returns {Promise<string>} 模板内容
+ */
+async function readTemplateFile(name, ctx, options) {
+  const allowEmpty = !!(options && options.allowEmpty);
   const override = await ctx.store.readTemplate(name);
-  if (override !== null) return override;
+  if (override !== null && (allowEmpty || String(override).trim())) return override;
   return fs.readFile(path.join(ctx.templatesDir, name), 'utf8');
 }
 
@@ -218,7 +229,8 @@ async function convert(nodes, opts, ctx) {
 
   // 规则：占位符 {{proxy}} 替换为手动选择组名；输出为 YAML 列表项
   const rulesFile = (cfg.converter && cfg.converter.rules_file) || 'rules.tmpl.txt';
-  const rulesRaw = await readTemplateFile(rulesFile, ctx);
+  // 规则模板允许为空（表示不需要任何分流规则），主模板不允许（空主模板会让订阅输出为空）
+  const rulesRaw = await readTemplateFile(rulesFile, ctx, { allowEmpty: true });
   const rulesLines = rulesRaw
     .replace(/\{\{proxy\}\}/g, selectName)
     .trim()
